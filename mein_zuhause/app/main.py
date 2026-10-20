@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
@@ -101,12 +101,40 @@ def make_pdf(nid):
  styles=getSampleStyleSheet(); styles.add(ParagraphStyle(name='Haus',parent=styles['BodyText'],leading=15,spaceAfter=7))
  story=[Paragraph(html.escape(n['title']),styles['Title']),Paragraph(html.escape(n['category'] or ''),styles['Italic']),Spacer(1,7*mm)]
  soup=BeautifulSoup(n['body'],'html.parser')
- for elem in soup.find_all(['p','h1','h2','h3','li','blockquote','div','tr']):
-  if elem.find_parent(['p','li','blockquote','div','tr']): continue
-  text=elem.get_text(' ',strip=True)
-  if not text: continue
-  style=styles['Heading2'] if elem.name in ('h1','h2') else styles['Haus']
-  story.append(Paragraph(html.escape(('• ' if elem.name=='li' else '')+text),style))
+ # Convert every text node, including top-level text and text inside nested containers.
+ # Paragraph supports basic inline formatting, while block elements define breaks.
+ blocks={'p','div','h1','h2','h3','li','blockquote','tr','ul','ol','table'}
+ inline={'b','strong','i','em','u','a','span','td','th'}
+ buffer=[]
+ def flush(style_name='Haus',prefix=''):
+  markup=''.join(buffer).strip()
+  buffer.clear()
+  if markup and BeautifulSoup(markup,'html.parser').get_text(' ',strip=True):
+   story.append(Paragraph(prefix+markup,styles[style_name]))
+ def walk(node,style_name='Haus',prefix=''):
+  if isinstance(node,NavigableString):
+   buffer.append(html.escape(str(node)))
+   return
+  if not isinstance(node,Tag): return
+  tag=node.name
+  if tag=='br':
+   buffer.append('<br/>')
+   return
+  if tag in blocks:
+   flush()
+   current='Heading2' if tag in ('h1','h2') else 'Haus'
+   lead='&#8226; ' if tag=='li' else ''
+   for child in node.children:
+    walk(child,current)
+   flush(current,lead)
+   return
+  tagmap={'strong':'b','b':'b','em':'i','i':'i','u':'u'}
+  if tag in tagmap: buffer.append('<'+tagmap[tag]+'>')
+  for child in node.children: walk(child,style_name)
+  if tag in tagmap: buffer.append('</'+tagmap[tag]+'>')
+ for node in soup.contents:
+  walk(node)
+ flush()
  for a in at:
   path=FILES/a['id']
   if a['mime'].startswith('image/') and path.exists():
