@@ -1,0 +1,16 @@
+MEIN ZUHAUSE - UPDATE 0.1.1
+
+Problem: Der PDF-Export der Version 0.1.0 hat freie Textknoten und bestimmte verschachtelte HTML-Inhalte ausgelassen.
+
+Korrektur: Die HTML-Struktur wird rekursiv gelesen. Auch Text direkt am Anfang des Editors wird ausgegeben. Grundlegende Fett-/Kursiv-/Unterstreichungsformatierung wird im PDF uebernommen.
+
+INSTALLATION
+1. Vor dem Update Home-Assistant-Backup der App erstellen.
+2. In GitHub im bestehenden Repository die Dateien mein_zuhause/app/main.py und mein_zuhause/config.yaml durch die Dateien aus diesem Paket ersetzen.
+3. Aenderungen committen.
+4. In Home Assistant unter Einstellungen > Apps > App-Store das Repository aktualisieren (ggf. neu laden).
+5. App Mein Zuhause auf Version 0.1.1 aktualisieren, NICHT deinstallieren.
+6. Vorhandenes Rezept oeffnen, ohne den Text zu entfernen eine Kleinigkeit aendern und speichern. Der PDF-Export wird erneut erstellt.
+7. Auf FRITZ!NAS pruefen, ob die erste Zeile und der gesamte Text enthalten sind.
+
+WICHTIG: Die Anwendung wurde nicht auf echter HA-Hardware getestet. Der PDF-Renderer ist ein einfacher Basisrenderer und unterstuetzt noch nicht alle komplexen HTML-Layouts, Tabellen oder Bildpositionen.

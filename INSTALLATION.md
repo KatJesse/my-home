@@ -77,3 +77,9 @@ Die Datenbank und Anhänge liegen im persistenten App-Konfigurationsverzeichnis 
 - Session-Cookie mit HttpOnly/SameSite; Passwort-Hash PBKDF2; einfache Origin-Prüfung.
 - **Noch keine** umfassende Penetrationsprüfung, CSRF-Token, Login-Ratenbegrenzung, MFA, Audit-Log, Verschlüsselung ruhender Daten, PDF-Job-Warteschlange, vollständige HTML-Formatübernahme, Revision-Wiederherstellungsoberfläche oder vollständige Dokumenten-OCR.
 - Nicht als alleinige Ablage kritischer Versicherungs-, Ausweis- oder Zugangsdaten verwenden, bevor Backup und Sicherheitskonzept geprüft sind.
+
+---
+
+## Update auf Version 0.2.0 (bestehende Installation)
+
+Die obige Anleitung beschreibt die Ersteinrichtung. Für eine bestehende Installation mit Rezepten und FRITZ!NAS **nicht neu installieren und keine Daten löschen**. Die genaue Aktualisierungsanleitung steht in `UPDATE_0.2.0.md`. Das neue Nachbau-Dokument ist `NACHBAU_SPEZIFIKATION_0.2.0.txt`.
