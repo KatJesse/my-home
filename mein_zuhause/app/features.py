@@ -14,6 +14,8 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
   CREATE TABLE IF NOT EXISTS pantry_categories(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE);
   CREATE TABLE IF NOT EXISTS pantry_items(id INTEGER PRIMARY KEY,name TEXT NOT NULL,quantity REAL,unit TEXT,minimum REAL,category_id INTEGER REFERENCES pantry_categories(id) ON DELETE SET NULL,shelf_id INTEGER REFERENCES pantry_shelves(id) ON DELETE SET NULL,expires TEXT,frozen TEXT,opened INTEGER NOT NULL DEFAULT 0,used_amount REAL,notes TEXT NOT NULL DEFAULT '',barcode TEXT NOT NULL DEFAULT '',updated TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS shopping(id INTEGER PRIMARY KEY,name TEXT NOT NULL,quantity REAL,unit TEXT,store TEXT NOT NULL DEFAULT '',position INTEGER NOT NULL DEFAULT 0,checked INTEGER NOT NULL DEFAULT 0,pantry_id INTEGER REFERENCES pantry_items(id) ON DELETE SET NULL);
+  CREATE TABLE IF NOT EXISTS shopping_archives(id INTEGER PRIMARY KEY,closed_at TEXT NOT NULL,store TEXT NOT NULL DEFAULT '',item_count INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS shopping_archive_items(id INTEGER PRIMARY KEY,archive_id INTEGER NOT NULL REFERENCES shopping_archives(id) ON DELETE CASCADE,name TEXT NOT NULL,quantity REAL,unit TEXT,store TEXT,position INTEGER,checked INTEGER,pantry_id INTEGER);
   CREATE TABLE IF NOT EXISTS storage_places(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE);
   CREATE TABLE IF NOT EXISTS storage_boxes(id INTEGER PRIMARY KEY,number TEXT NOT NULL UNIQUE,title TEXT NOT NULL,place_id INTEGER REFERENCES storage_places(id) ON DELETE SET NULL,keywords TEXT NOT NULL DEFAULT '',notes TEXT NOT NULL DEFAULT '',metadata TEXT NOT NULL DEFAULT '',image_id TEXT,updated TEXT NOT NULL);
   ''')
@@ -121,13 +123,24 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
  def shopping(req:Request,store:str=''):
   require(req)
   with db() as c:
-   rows=c.execute('SELECT * FROM shopping ORDER BY position,id').fetchall();stores=[r[0] for r in c.execute("SELECT DISTINCT store FROM shopping WHERE store!='' ORDER BY store")]
+   rows=c.execute('SELECT * FROM shopping ORDER BY checked ASC,position ASC,id ASC').fetchall();stores=[r[0] for r in c.execute("SELECT DISTINCT store FROM shopping WHERE store!='' ORDER BY store")]
   return render(req,'shopping.html',items=[r for r in rows if not store or r['store']==store],stores=stores,store=store)
  @app.post('/shopping')
  def shopping_add(req:Request,name:str=Form(...),quantity:str=Form(''),unit:str=Form(''),store:str=Form('')):
   check(req)
   with db() as c:c.execute('INSERT INTO shopping(name,quantity,unit,store,position) VALUES (?,?,?,?,?)',(name.strip()[:180],asfloat(quantity),unit[:30],store[:100],c.execute('SELECT COALESCE(MAX(position),0)+1 FROM shopping').fetchone()[0]))
   return go('/shopping')
+ @app.post('/shopping/close')
+ def shopping_close(req:Request,store:str=Form('')):
+  check(req)
+  with db() as c:
+   rows=c.execute('SELECT * FROM shopping WHERE store=? ORDER BY position,id',(store,)).fetchall() if store else c.execute('SELECT * FROM shopping ORDER BY position,id').fetchall()
+   if not rows:return go('/shopping')
+   archive_store=store or ('Verschiedene Geschäfte' if len({r['store'] for r in rows})>1 else rows[0]['store'])
+   cur=c.execute('INSERT INTO shopping_archives(closed_at,store,item_count) VALUES (?,?,?)',(now(),archive_store,len(rows)))
+   for r in rows:c.execute('INSERT INTO shopping_archive_items(archive_id,name,quantity,unit,store,position,checked,pantry_id) VALUES (?,?,?,?,?,?,?,?)',(cur.lastrowid,r['name'],r['quantity'],r['unit'],r['store'],r['position'],r['checked'],r['pantry_id']))
+   c.executemany('DELETE FROM shopping WHERE id=?',[(r['id'],) for r in rows])
+  return go('/shopping/archive')
  @app.post('/shopping/{id}')
  def shopping_change(req:Request,id:int,action:str=Form('save'),name:str=Form(''),quantity:str=Form(''),unit:str=Form(''),store:str=Form(''),checked:str=Form('')):
   check(req)
@@ -139,6 +152,27 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
      other=c.execute('SELECT * FROM shopping WHERE (position,id) '+('<' if action=='up' else '>')+' (?,?) ORDER BY position '+('DESC' if action=='up' else 'ASC')+',id '+('DESC' if action=='up' else 'ASC')+' LIMIT 1',(r['position'],id)).fetchone()
      if other:c.execute('UPDATE shopping SET position=? WHERE id=?',(other['position'],id));c.execute('UPDATE shopping SET position=? WHERE id=?',(r['position'],other['id']))
    else:c.execute('UPDATE shopping SET name=?,quantity=?,unit=?,store=?,checked=? WHERE id=?',(name.strip()[:180],asfloat(quantity),unit[:30],store[:100],int(checked=='yes'),id))
+  return go('/shopping')
+ @app.post('/shopping/{id}/toggle')
+ def shopping_toggle(req:Request,id:int):
+  check(req)
+  with db() as c:c.execute('UPDATE shopping SET checked=CASE WHEN checked=1 THEN 0 ELSE 1 END WHERE id=?',(id,))
+  return go('/shopping')
+ @app.get('/shopping/archive',response_class=HTMLResponse)
+ def shopping_archive(req:Request):
+  require(req)
+  with db() as c:
+   archives=c.execute('SELECT * FROM shopping_archives ORDER BY closed_at DESC,id DESC').fetchall()
+   contents={r['id']:c.execute('SELECT * FROM shopping_archive_items WHERE archive_id=? ORDER BY position,id',(r['id'],)).fetchall() for r in archives}
+  return render(req,'shopping_archive.html',archives=archives,contents=contents)
+ @app.post('/shopping/archive/{id}/restore')
+ def shopping_restore(req:Request,id:int):
+  check(req)
+  with db() as c:
+   rows=c.execute('SELECT * FROM shopping_archive_items WHERE archive_id=? ORDER BY position,id',(id,)).fetchall()
+   for r in rows:c.execute('INSERT INTO shopping(name,quantity,unit,store,position,checked,pantry_id) VALUES (?,?,?,?,?,?,?)',(r['name'],r['quantity'],r['unit'],r['store'],c.execute('SELECT COALESCE(MAX(position),0)+1 FROM shopping').fetchone()[0],r['checked'],r['pantry_id'] if r['pantry_id'] and c.execute('SELECT 1 FROM pantry_items WHERE id=?',(r['pantry_id'],)).fetchone() else None))
+   c.execute('DELETE FROM shopping_archive_items WHERE archive_id=?',(id,))
+   c.execute('DELETE FROM shopping_archives WHERE id=?',(id,))
   return go('/shopping')
  @app.get('/storage',response_class=HTMLResponse)
  def storage(req:Request,q:str='',place:int=0):
