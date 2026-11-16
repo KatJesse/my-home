@@ -53,6 +53,10 @@ def require(req):
  u=user(req)
  if not u: raise HTTPException(401,'Bitte anmelden')
  return u
+def writer(req):
+ u=require(req)
+ if u['role'] not in ('admin','writer','member'): raise HTTPException(403,'Nur Schreibberechtigte')
+ return u
 
 def safe_post(req):
  origin=req.headers.get('origin',''); host=req.headers.get('host','')
@@ -76,13 +80,60 @@ def sync_search(c,nid):
 
 def clean_html(value):
  soup=BeautifulSoup(value,'html.parser')
- allowed={'p','br','b','strong','i','em','u','h1','h2','h3','ul','ol','li','blockquote','table','thead','tbody','tr','td','th','a','div','span'}
+ allowed={'p','br','b','strong','i','em','u','s','strike','h1','h2','h3','ul','ol','li','blockquote','table','thead','tbody','tr','td','th','a','div','span','input'}
  for tag in list(soup.find_all(True)):
   if tag.name not in allowed: tag.unwrap(); continue
   attrs={}
   if tag.name=='a' and tag.get('href','').startswith(('https://','http://','mailto:')): attrs['href']=tag['href']
+  if tag.name=='input' and tag.get('type')=='checkbox':
+   attrs['type']='checkbox'
+   if tag.has_attr('checked'):attrs['checked']='checked'
+  if tag.name=='input' and 'type' not in attrs:tag.decompose();continue
   tag.attrs=attrs
  return str(soup)
+
+def remote_settings():
+ with db() as c:
+  rows=c.execute("SELECT key,value FROM app_settings WHERE key LIKE 'nas_%'").fetchall()
+ return {r['key']:r['value'] for r in rows}
+
+def smb_action(action, category, filename, local=None):
+ """Use smbclient without a privileged mount; credentials never appear in process arguments."""
+ opts=remote_settings()
+ if opts.get('nas_mode')!='smb': return
+ server=opts.get('nas_server',''); share=opts.get('nas_share','')
+ username=opts.get('nas_user',''); password=opts.get('nas_password','')
+ if not all((server,share,username,password)): raise RuntimeError('SMB-Einstellungen unvollstaendig')
+ import ipaddress
+ # Hostname or IP only, not an URL or shell command
+ if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,252}',server): raise ValueError('Ungueltiger SMB-Server')
+ if not re.fullmatch(r'[A-Za-z0-9_. -]{1,100}',share): raise ValueError('Ungueltige SMB-Freigabe')
+ sub=opts.get('nas_folder','').strip('/\\')
+ parts=[x for x in sub.replace('\\','/').split('/') if x]
+ if any(x in ('.','..') or not re.fullmatch(r'[\w .-]{1,100}',x) for x in parts): raise ValueError('Ungueltiger Unterordner')
+ parts.append(category)
+ remote='/'.join(parts)
+ # smbclient -A file requires a protected auth file, not command-line passwords.
+ fd,auth=tempfile.mkstemp(prefix='haus-smb-',dir=str(BASE))
+ try:
+  os.fchmod(fd,0o600)
+  with os.fdopen(fd,'w') as f:
+   f.write('username = '+username.replace('\n','')+'\npassword = '+password.replace('\n','')+'\n')
+  def call(command):
+   r=subprocess.run(['smbclient','//'+server+'/'+share,'-A',auth,'-m','SMB3','-c',command],capture_output=True,text=True,timeout=45)
+   if r.returncode: raise RuntimeError('SMB fehlgeschlagen: '+(r.stderr or r.stdout)[-300:])
+  if action=='put':
+   path=''
+   for part in parts:
+    path=path+'/'+part if path else part
+    # Existing directory errors are harmless; check with cd.
+    try:call('mkdir "'+path+'"')
+    except RuntimeError:call('cd "'+path+'"')
+   call('cd "'+remote+'"; put "'+str(local)+'" "'+filename+'"')
+  elif action=='del':
+   call('cd "'+remote+'"; del "'+filename+'"')
+ finally:
+  Path(auth).unlink(missing_ok=True)
 
 def make_pdf(nid):
  with db() as c:
@@ -101,6 +152,11 @@ def make_pdf(nid):
  styles=getSampleStyleSheet(); styles.add(ParagraphStyle(name='Haus',parent=styles['BodyText'],leading=15,spaceAfter=7))
  story=[Paragraph(html.escape(n['title']),styles['Title']),Paragraph(html.escape(n['category'] or ''),styles['Italic']),Spacer(1,7*mm)]
  soup=BeautifulSoup(n['body'],'html.parser')
+ for todo in soup.find_all(['p','li','div']):
+  if todo.find('input',attrs={'type':'checkbox','checked':True}):
+   for child in list(todo.contents):
+    if isinstance(child,Tag) and child.name=='input':continue
+    wrapper=soup.new_tag('strike');child.wrap(wrapper)
  # Convert every text node, including top-level text and text inside nested containers.
  # Paragraph supports basic inline formatting, while block elements define breaks.
  blocks={'p','div','h1','h2','h3','li','blockquote','tr','ul','ol','table'}
@@ -117,6 +173,9 @@ def make_pdf(nid):
    return
   if not isinstance(node,Tag): return
   tag=node.name
+  if tag=='input' and node.get('type')=='checkbox':
+   buffer.append('[x] ' if node.has_attr('checked') else '[ ] ')
+   return
   if tag=='br':
    buffer.append('<br/>')
    return
@@ -128,7 +187,7 @@ def make_pdf(nid):
     walk(child,current)
    flush(current,lead)
    return
-  tagmap={'strong':'b','b':'b','em':'i','i':'i','u':'u'}
+  tagmap={'strong':'b','b':'b','em':'i','i':'i','u':'u','s':'strike','strike':'strike'}
   if tag in tagmap: buffer.append('<'+tagmap[tag]+'>')
   for child in node.children: walk(child,style_name)
   if tag in tagmap: buffer.append('</'+tagmap[tag]+'>')
@@ -144,27 +203,36 @@ def make_pdf(nid):
     width=min(a['width_mm'],170)*mm
     height=width*h/w
     if height>230*mm: height=230*mm; width=height*w/h
-    story.extend([Spacer(1,4*mm),Paragraph(html.escape(a['name']),styles['Italic']),Image(str(path),width=width,height=height)])
+    story.extend([Spacer(1,4*mm),Image(str(path),width=width,height=height)])
    except Exception: pass
-  else: story.append(Paragraph('Anhang: '+html.escape(a['name']),styles['Haus']))
+  else: pass  # Nicht-Bild-Anhaenge bleiben in der App, keine Dateinamen im PDF
  fd,tmp=tempfile.mkstemp(suffix='.pdf',dir=str(directory)); os.close(fd)
  try:
   SimpleDocTemplate(tmp,pagesize=(210*mm,297*mm),rightMargin=18*mm,leftMargin=18*mm,topMargin=20*mm,bottomMargin=20*mm).build(story)
   os.replace(tmp,out)
   for old in target.glob('*/'+'*-'+nid[:8]+'.pdf'):
    if old!=out: old.unlink(missing_ok=True)
+  smb_action('put',cat,out.name,out)
  finally:
   if os.path.exists(tmp): os.unlink(tmp)
 
 @app.get('/',response_class=HTMLResponse)
-def home(req:Request,q:str='',status:str='active'):
+def home(req:Request,q:str='',status:str='active',category_id:int=0,sort:str='updated_desc'):
  if not user(req): return go('/login')
  with db() as c:
   if q:
    rows=c.execute('SELECT n.*,categories.name category FROM notes n LEFT JOIN categories ON categories.id=n.category_id WHERE n.status=? AND n.id IN (SELECT note_id FROM note_search WHERE note_search MATCH ?) ORDER BY n.updated DESC',(status,' '.join(re.findall(r'[\w]+',q))+'*' if re.findall(r'[\w]+',q) else 'zzzznonexistent')).fetchall()
   else: rows=c.execute('SELECT n.*,categories.name category FROM notes n LEFT JOIN categories ON categories.id=n.category_id WHERE n.status=? ORDER BY n.updated DESC',(status,)).fetchall()
   cats=c.execute('SELECT * FROM categories ORDER BY name').fetchall()
- return render(req,'home.html',notes=rows,categories=cats,q=q,status=status)
+ 
+  hidden={r['category_id'] for r in c.execute('SELECT category_id FROM hidden_categories WHERE user_id=?',(user(req)['id'],))}
+  if category_id: rows=[r for r in rows if r['category_id']==category_id]
+  else: rows=[r for r in rows if r['category_id'] not in hidden]
+  if sort=='title_asc':rows=sorted(rows,key=lambda r:r['title'].casefold())
+  elif sort=='title_desc':rows=sorted(rows,key=lambda r:r['title'].casefold(),reverse=True)
+  elif sort=='created_desc':rows=sorted(rows,key=lambda r:r['created'],reverse=True)
+  elif sort=='updated_asc':rows=sorted(rows,key=lambda r:r['updated'])
+ return render(req,'home.html',notes=rows,categories=cats,q=q,status=status,category_id=category_id,sort=sort,hidden=hidden)
 @app.get('/login',response_class=HTMLResponse)
 def login_page(req:Request):
  with db() as c: count=c.execute('SELECT count(*) FROM users').fetchone()[0]
@@ -193,17 +261,17 @@ def add_user(req:Request,username:str=Form(...),password:str=Form(...)):
  if u['role']!='admin': raise HTTPException(403)
  if len(password)<12: raise HTTPException(400,'Passwort zu kurz')
  with db() as c:
-  try:c.execute('INSERT INTO users(username,password,role) VALUES (?,?,?)',(username,hash_pw(password),'member'))
+  try:c.execute('INSERT INTO users(username,password,role) VALUES (?,?,?)',(username,hash_pw(password),'writer'))
   except sqlite3.IntegrityError: raise HTTPException(409,'Benutzer existiert')
  return go('/')
 @app.post('/categories')
 def add_category(req:Request,name:str=Form(...)):
- safe_post(req);require(req)
+ safe_post(req);writer(req)
  with db() as c: c.execute('INSERT OR IGNORE INTO categories(name) VALUES (?)',(name.strip()[:80],))
  return go('/')
 @app.get('/notes/new')
 def new(req:Request):
- require(req)
+ writer(req)
  with db() as c: cats=c.execute('SELECT * FROM categories ORDER BY name').fetchall()
  return render(req,'edit.html',note=None,attachments=[],categories=cats)
 @app.get('/notes/{nid}')
@@ -216,8 +284,8 @@ def edit(req:Request,nid:str):
   cats=c.execute('SELECT * FROM categories ORDER BY name').fetchall()
  return render(req,'edit.html',note=n,attachments=at,categories=cats)
 @app.post('/notes/save')
-def save(req:Request,nid:str=Form(''),title:str=Form(...),body:str=Form(''),category_id:int=Form(...)):
- safe_post(req);u=require(req)
+def save(req:Request,nid:str=Form(''),title:str=Form(...),body:str=Form(''),category_id:int=Form(...),action:str=Form('stay')):
+ safe_post(req);u=writer(req)
  nid=nid or uuid.uuid4().hex
  body=clean_html(body)
  with db() as c:
@@ -229,10 +297,10 @@ def save(req:Request,nid:str=Form(''),title:str=Form(...),body:str=Form(''),cate
   sync_search(c,nid)
  try: make_pdf(nid)
  except Exception as e: print('PDF export pending/error:',repr(e),flush=True)
- return go('/notes/'+nid)
+ return go('/' if action=='close' else '/notes/'+nid)
 @app.post('/notes/{nid}/status')
 def status(req:Request,nid:str,value:str=Form(...)):
- safe_post(req);require(req)
+ safe_post(req);writer(req)
  if value not in ('active','archived','trash'): raise HTTPException(400)
  with db() as c: c.execute('UPDATE notes SET status=?,updated=? WHERE id=?',(value,now(),nid))
  try:make_pdf(nid)
@@ -240,7 +308,7 @@ def status(req:Request,nid:str,value:str=Form(...)):
  return go('/')
 @app.post('/notes/{nid}/delete')
 def delete(req:Request,nid:str):
- safe_post(req);require(req)
+ safe_post(req);writer(req)
  with db() as c:
   n=c.execute('SELECT status FROM notes WHERE id=?',(nid,)).fetchone()
   if not n or n['status']!='trash':raise HTTPException(400,'Zuerst in den Papierkorb verschieben')
@@ -254,7 +322,7 @@ def delete(req:Request,nid:str):
  return go('/')
 @app.post('/notes/{nid}/upload')
 async def upload(req:Request,nid:str,files:list[UploadFile]=File(...)):
- safe_post(req);require(req)
+ safe_post(req);writer(req)
  with db() as c:
   if not c.execute('SELECT id FROM notes WHERE id=?',(nid,)).fetchone():raise HTTPException(404)
   for f in files:
@@ -291,7 +359,7 @@ def attachment(req:Request,aid:str):
  return FileResponse(FILES/aid,media_type=a['mime'],filename=a['name'],content_disposition_type='inline' if a['mime'].startswith('image/') or a['mime']=='application/pdf' else 'attachment',headers={'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"})
 @app.post('/attachments/{aid}/width')
 def width(req:Request,aid:str,width_mm:int=Form(...)):
- safe_post(req);require(req)
+ safe_post(req);writer(req)
  if not 20<=width_mm<=170:raise HTTPException(400)
  with db() as c:
   a=c.execute('SELECT note_id FROM attachments WHERE id=?',(aid,)).fetchone()
@@ -302,7 +370,7 @@ def width(req:Request,aid:str,width_mm:int=Form(...)):
  return go('/notes/'+a['note_id'])
 @app.post('/attachments/{aid}/delete')
 def del_attachment(req:Request,aid:str):
- safe_post(req);require(req)
+ safe_post(req);writer(req)
  with db() as c:
   a=c.execute('SELECT note_id FROM attachments WHERE id=?',(aid,)).fetchone()
   if not a:raise HTTPException(404)
@@ -314,3 +382,13 @@ def del_attachment(req:Request,aid:str):
 @app.get('/health')
 def health(req:Request):
  require(req);return {'status':'ok','pdf_directory':cfg().get('pdf_directory')}
+
+# Einmalige Sicherung vor der ersten Schemaerweiterung auf 0.2.0.
+backup_file=BASE/'house-before-0.2.0.db'
+if DB.exists() and not backup_file.exists():
+ try:
+  with sqlite3.connect(str(DB)) as source, sqlite3.connect(str(backup_file)) as destination:
+   source.backup(destination)
+ except Exception as exc: print('WARNUNG: Datenbanksicherung fehlgeschlagen:',repr(exc),flush=True)
+from app.features import install_features
+install_features(app, db, require, writer, safe_post, render, go, now, BASE, FILES, hash_pw, cfg)
