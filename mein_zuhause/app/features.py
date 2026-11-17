@@ -1,4 +1,5 @@
 import sqlite3, shutil, json, uuid
+from urllib.parse import urlencode
 from datetime import date, timedelta
 from pathlib import Path
 from fastapi import Request, Form, HTTPException
@@ -47,7 +48,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
    rows=c.execute('''SELECT p.*,pc.name category,s.name shelf,l.name location FROM pantry_items p LEFT JOIN pantry_categories pc ON pc.id=p.category_id LEFT JOIN pantry_shelves s ON s.id=p.shelf_id LEFT JOIN pantry_locations l ON l.id=s.location_id''').fetchall()
   rows=[r for r in rows if (not q or q.casefold() in (' '.join(str(r[k] or '') for k in ('name','notes','barcode','category','location','shelf'))).casefold()) and (not category or r['category_id']==category) and (not location or any(x['id']==r['shelf_id'] and x['location_id']==location for x in ctx['shelves'])) and (not expiry or (expiry=='expired' and r['expires'] and r['expires']<today) or (expiry=='soon' and r['expires'] and today<=r['expires']<=limit) or (expiry=='low' and r['minimum'] is not None and (r['quantity'] or 0)<=r['minimum']))]
   rows=sorted(rows,key=lambda r:((r['expires'] or '9999') if sort=='expires' else (r['location'] or '').casefold() if sort=='location' else r['name'].casefold()))
-  return render(req,'pantry.html',items=rows,q=q,category=category,location=location,expiry=expiry,sort=sort,days=days,today=today,limit=limit,**ctx)
+  return render(req,'pantry.html',show_low_button=opts.get('show_low_button','yes')=='yes',items=rows,q=q,category=category,location=location,expiry=expiry,sort=sort,days=days,today=today,limit=limit,**ctx)
  @app.post('/pantry/locations')
  def add_location(req:Request,name:str=Form(...)):
   check(req)
@@ -123,7 +124,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
  def shopping(req:Request,store:str=''):
   require(req)
   with db() as c:
-   rows=c.execute('SELECT * FROM shopping ORDER BY checked ASC,position ASC,id ASC').fetchall();stores=[r[0] for r in c.execute("SELECT DISTINCT store FROM shopping WHERE store!='' ORDER BY store")]
+   rows=c.execute('SELECT * FROM shopping ORDER BY checked ASC,lower(store) ASC,position ASC,id ASC').fetchall();stores=[r[0] for r in c.execute("SELECT DISTINCT store FROM shopping WHERE store!='' ORDER BY store")]
   return render(req,'shopping.html',items=[r for r in rows if not store or r['store']==store],stores=stores,store=store)
  @app.post('/shopping')
  def shopping_add(req:Request,name:str=Form(...),quantity:str=Form(''),unit:str=Form(''),store:str=Form('')):
@@ -142,7 +143,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
    c.executemany('DELETE FROM shopping WHERE id=?',[(r['id'],) for r in rows])
   return go('/shopping/archive')
  @app.post('/shopping/{id}')
- def shopping_change(req:Request,id:int,action:str=Form('save'),name:str=Form(''),quantity:str=Form(''),unit:str=Form(''),store:str=Form(''),checked:str=Form('')):
+ def shopping_change(req:Request,id:int,action:str=Form('save'),name:str=Form(''),quantity:str=Form(''),unit:str=Form(''),store:str=Form(''),checked:str=Form(''),filter_store:str=Form('')):
   check(req)
   with db() as c:
    if action=='delete':c.execute('DELETE FROM shopping WHERE id=?',(id,))
@@ -152,12 +153,12 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
      other=c.execute('SELECT * FROM shopping WHERE (position,id) '+('<' if action=='up' else '>')+' (?,?) ORDER BY position '+('DESC' if action=='up' else 'ASC')+',id '+('DESC' if action=='up' else 'ASC')+' LIMIT 1',(r['position'],id)).fetchone()
      if other:c.execute('UPDATE shopping SET position=? WHERE id=?',(other['position'],id));c.execute('UPDATE shopping SET position=? WHERE id=?',(r['position'],other['id']))
    else:c.execute('UPDATE shopping SET name=?,quantity=?,unit=?,store=?,checked=? WHERE id=?',(name.strip()[:180],asfloat(quantity),unit[:30],store[:100],int(checked=='yes'),id))
-  return go('/shopping')
+  return go('/shopping'+('?' + urlencode({'store':filter_store}) if filter_store else ''))
  @app.post('/shopping/{id}/toggle')
- def shopping_toggle(req:Request,id:int):
+ def shopping_toggle(req:Request,id:int,store:str=Form('')):
   check(req)
   with db() as c:c.execute('UPDATE shopping SET checked=CASE WHEN checked=1 THEN 0 ELSE 1 END WHERE id=?',(id,))
-  return go('/shopping')
+  return go('/shopping'+('?' + urlencode({'store':store}) if store else ''))
  @app.get('/shopping/archive',response_class=HTMLResponse)
  def shopping_archive(req:Request):
   require(req)
@@ -244,6 +245,69 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
   head=path.open('rb').read(16)
   mime='image/png' if head.startswith(b'\x89PNG') else 'image/webp' if head.startswith(b'RIFF') and head[8:12]==b'WEBP' else 'image/jpeg' if head.startswith(b'\xff\xd8') else 'application/octet-stream'
   return FileResponse(path,media_type=mime,headers={'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"})
+ def media_list():
+  with db() as c:
+   attachments=c.execute("SELECT a.id,a.name,a.mime,n.title AS owner FROM attachments a LEFT JOIN notes n ON n.id=a.note_id WHERE a.mime LIKE 'image/%' ORDER BY a.name").fetchall()
+   boxes=c.execute("SELECT id,image_id,number,title FROM storage_boxes WHERE image_id IS NOT NULL ORDER BY number").fetchall()
+  result=[]
+  for a in attachments:
+   path=FILES/a['id']; result.append(dict(kind='attachment',id=a['id'],name=a['name'],owner=a['owner'] or '',date=__import__('datetime').datetime.fromtimestamp(path.stat().st_mtime).strftime('%d.%m.%Y %H:%M') if path.exists() else 'Datei fehlt',url='/attachments/'+a['id']))
+  for b in boxes:
+   path=FILES/b['image_id'];result.append(dict(kind='box',id=str(b['id']),name='Kiste '+b['number'],owner=b['title'],date=__import__('datetime').datetime.fromtimestamp(path.stat().st_mtime).strftime('%d.%m.%Y %H:%M') if path.exists() else 'Datei fehlt',url='/storage/image/'+str(b['id'])))
+  return result
+ @app.post('/settings/media/{kind}/{id}/delete')
+ def media_delete(req:Request,kind:str,id:str):
+  admin(req);safe_post(req)
+  if kind=='attachment':
+   with db() as c:
+    a=c.execute('SELECT id,note_id FROM attachments WHERE id=?',(id,)).fetchone()
+    if not a:raise HTTPException(404)
+    c.execute('DELETE FROM attachments WHERE id=?',(id,))
+    # Keep OCR search synchronized
+    from bs4 import BeautifulSoup
+    n=c.execute('SELECT title,body FROM notes WHERE id=?',(a['note_id'],)).fetchone()
+    if n:
+     c.execute('DELETE FROM note_search WHERE note_id=?',(a['note_id'],))
+     ocr=' '.join(x[0] for x in c.execute('SELECT ocr FROM attachments WHERE note_id=?',(a['note_id'],)))
+     c.execute('INSERT INTO note_search VALUES (?,?,?,?)',(a['note_id'],n['title'],BeautifulSoup(n['body'],'html.parser').get_text(' ',strip=True),ocr))
+   (FILES/id).unlink(missing_ok=True)
+  elif kind=='box':
+   with db() as c:
+    a=c.execute('SELECT image_id FROM storage_boxes WHERE id=?',(int(id),)).fetchone()
+    if not a or not a['image_id']:raise HTTPException(404)
+    c.execute('UPDATE storage_boxes SET image_id=NULL WHERE id=?',(int(id),))
+   (FILES/a['image_id']).unlink(missing_ok=True)
+  else:raise HTTPException(404)
+  return go('/settings#media')
+ @app.post('/settings/appearance')
+ async def appearance_save(req:Request):
+  admin(req);safe_post(req)
+  data=await req.form()
+  pages=('notes','pantry','shopping','storage','settings')
+  keys={'font','columns','gap','rowgap','menugap','bold','fields','stripe1','stripe2'}
+  with db() as c:
+   for page in pages:
+    for device in ('desktop','mobile'):
+     for key in keys:
+      field=f'layout_{page}_{device}_{key}'
+      if field in data:
+       value=str(data[field])[:120]
+       if key in ('font','gap','rowgap','menugap'):
+        try:value=str(max(0,min(80,int(value))))
+        except ValueError:raise HTTPException(400,'Ungueltiger Zahlenwert')
+       if key=='columns' and value not in ('1','2','3','4'):raise HTTPException(400,'Spaltenzahl ungueltig')
+       if key in ('stripe1','stripe2'):
+        import re
+        if not re.fullmatch(r'#[0-9a-fA-F]{6}',value):raise HTTPException(400,'Farbwert ungueltig')
+       if key in ('bold','fields'):
+        allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',)}[page]
+        value=','.join(v for v in value.split(',') if v in allowed)
+       c.execute('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(field,value))
+   for page in pages:
+    key='hide_tab_'+page
+    c.execute('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,'yes' if key in data else 'no'))
+   c.execute("INSERT INTO app_settings(key,value) VALUES ('show_low_button',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('yes' if 'show_low_button' in data else 'no',))
+  return go('/settings#appearance')
  @app.get('/settings',response_class=HTMLResponse)
  def setting_page(req:Request):
   require(req)
@@ -253,7 +317,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
    hidden={r[0] for r in c.execute('SELECT category_id FROM hidden_categories WHERE user_id=?',(require(req)['id'],))}
    opts=settings(c)
   disk=shutil.disk_usage(BASE)
-  return render(req,'settings.html',users=users,categories=cats,hidden=hidden,opts=opts,disk=disk,usage_pct=round(disk.used/disk.total*100,1) if disk.total else 0,pdf_path=cfg().get('pdf_directory',''),nas={k:v for k,v in opts.items() if k.startswith('nas_') and k!='nas_password'},nas_password_set=bool(opts.get('nas_password')))
+  return render(req,'settings.html',media_items=media_list(),users=users,categories=cats,hidden=hidden,opts=opts,disk=disk,usage_pct=round(disk.used/disk.total*100,1) if disk.total else 0,pdf_path=cfg().get('pdf_directory',''),nas={k:v for k,v in opts.items() if k.startswith('nas_') and k!='nas_password'},nas_password_set=bool(opts.get('nas_password')))
  @app.post('/settings/nas')
  def nas_save(req:Request,mode:str=Form('local'),server:str=Form(''),share:str=Form(''),folder:str=Form(''),username:str=Form(''),password:str=Form('')):
   admin(req);safe_post(req)

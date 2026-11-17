@@ -63,7 +63,46 @@ def safe_post(req):
  if origin and origin.split('://')[-1]!=host: raise HTTPException(403,'Ungueltiger Ursprung')
 
 def render(req,name,**kw):
- return tpl.TemplateResponse(name,{'request':req,'user':user(req),**kw})
+ page_key={'home.html':'notes','edit.html':'notes','pantry.html':'pantry','pantry_edit.html':'pantry','shopping.html':'shopping','shopping_archive.html':'shopping','storage.html':'storage','storage_edit.html':'storage','settings.html':'settings'}.get(name,'notes')
+ opts={}
+ try:
+  with db() as c:opts={r['key']:r['value'] for r in c.execute("SELECT key,value FROM app_settings WHERE key LIKE 'layout_%' OR key LIKE 'hide_tab_%'")}
+ except sqlite3.OperationalError:pass
+ pages=('notes','pantry','shopping','storage','settings')
+ hidden_tabs={k for k in pages if opts.get('hide_tab_'+k)=='yes'}
+ css=[]
+ for page in pages:
+  for device in ('desktop','mobile'):
+   root=f'.page-{page}'
+   props=[]
+   def number(key,default):
+    try:return max(0,min(80,int(opts.get(f'layout_{page}_{device}_{key}',default))))
+    except ValueError:return default
+   props.extend([f'--row-gap:{number("rowgap",7)}px',f'--info-gap:{number("gap",14)}px',f'--menu-gap:{number("menugap",18)}px'])
+   for key,default in (('stripe1','#ffffff'),('stripe2','#f0f5fa')):
+    value=opts.get(f'layout_{page}_{device}_{key}',default)
+    if re.fullmatch(r'#[0-9a-fA-F]{6}',value):props.append(f'--{key}:{value}')
+   font=number('font',15)
+   if font:props.append(f'--list-font:{font}px')
+   cols=opts.get(f'layout_{page}_{device}_columns','1')
+   if cols in ('1','2','3','4'):props.append(f'--list-columns:{cols}')
+   fields=opts.get(f'layout_{page}_{device}_fields','')
+   if fields:
+    allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',)}[page]
+    for field in allowed:
+     if field not in fields.split(','):props.append(f'--show-{field}:none')
+   rule=root+'{'+ ';'.join(props)+'}'
+   if device=='mobile':rule='@media(max-width:700px){'+rule+'}'
+   css.append(rule)
+   bold=opts.get(f'layout_{page}_{device}_bold','')
+   selectors={'name':'.item-name','location':'.item-location','quantity':'.item-amount','title':'.card h3','number':'.compact-item summary strong','place':'.item-location','category':'.card small','updated':'.card small','store':'.item-location','shelf':'.item-location'}
+   if bold:
+    for key in bold.split(','):
+     if key in selectors:
+      rule=root+' '+selectors[key]+'{font-weight:750}'
+      if device=='mobile':rule='@media(max-width:700px){'+rule+'}'
+      css.append(rule)
+ return tpl.TemplateResponse(name,{'request':req,'user':user(req),'page_key':page_key,'nav_items':[('notes','Notizen','/'),('pantry','Vorräte','/pantry'),('shopping','Einkaufszettel','/shopping'),('storage','Lager','/storage'),('settings','Einstellungen','/settings')],'hidden_tabs':hidden_tabs,'layout_css':'\n'.join(css),**kw})
 def go(path): return RedirectResponse(path,status_code=303)
 
 def cfg():
