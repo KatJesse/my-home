@@ -22,6 +22,14 @@ app=FastAPI(title='Mein Zuhause')
 app.mount('/static',StaticFiles(directory=str(Path(__file__).parent/'static')),name='static')
 tpl=Jinja2Templates(directory=str(Path(__file__).parent/'templates'))
 
+@app.middleware("http")
+async def disable_stale_html_cache(request, call_next):
+ response=await call_next(request)
+ if response.headers.get('content-type','').startswith('text/html'):
+  response.headers['Cache-Control']='no-store, max-age=0'
+ return response
+
+
 def db():
  c=sqlite3.connect(DB,timeout=15); c.row_factory=sqlite3.Row; c.execute('PRAGMA foreign_keys=ON'); c.execute('PRAGMA journal_mode=WAL'); return c
 with db() as c:
