@@ -132,16 +132,18 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
   with db() as c:c.execute('INSERT INTO shopping(name,quantity,unit,store,position) VALUES (?,?,?,?,?)',(name.strip()[:180],asfloat(quantity),unit[:30],store[:100],c.execute('SELECT COALESCE(MAX(position),0)+1 FROM shopping').fetchone()[0]))
   return go('/shopping')
  @app.post('/shopping/close')
- def shopping_close(req:Request,store:str=Form('')):
+ def shopping_close(req:Request,store:str=Form(''),scope:str=Form('all')):
   check(req)
   with db() as c:
    rows=c.execute('SELECT * FROM shopping WHERE store=? ORDER BY position,id',(store,)).fetchall() if store else c.execute('SELECT * FROM shopping ORDER BY position,id').fetchall()
-   if not rows:return go('/shopping')
+   if scope not in ('all','checked'):raise HTTPException(400,'Ungueltiger Archivmodus')
+   if scope=='checked':rows=[r for r in rows if r['checked']]
+   if not rows:return go('/shopping'+('?' + urlencode({'store':store}) if store else ''))
    archive_store=store or ('Verschiedene Geschäfte' if len({r['store'] for r in rows})>1 else rows[0]['store'])
    cur=c.execute('INSERT INTO shopping_archives(closed_at,store,item_count) VALUES (?,?,?)',(now(),archive_store,len(rows)))
    for r in rows:c.execute('INSERT INTO shopping_archive_items(archive_id,name,quantity,unit,store,position,checked,pantry_id) VALUES (?,?,?,?,?,?,?,?)',(cur.lastrowid,r['name'],r['quantity'],r['unit'],r['store'],r['position'],r['checked'],r['pantry_id']))
    c.executemany('DELETE FROM shopping WHERE id=?',[(r['id'],) for r in rows])
-  return go('/shopping/archive')
+  return go('/shopping'+('?' + urlencode({'store':store}) if store else ''))
  @app.post('/shopping/{id}')
  def shopping_change(req:Request,id:int,action:str=Form('save'),name:str=Form(''),quantity:str=Form(''),unit:str=Form(''),store:str=Form(''),checked:str=Form(''),filter_store:str=Form('')):
   check(req)

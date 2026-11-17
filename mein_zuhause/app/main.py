@@ -99,7 +99,13 @@ def render(req,name,**kw):
     allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',)}[page]
     for field in allowed:
      if field not in fields.split(','):props.append(f'--show-{field}:none')
-   rule=root+'{'+ ';'.join(props)+'}'
+   # Respect the user-defined field order in list summaries.
+   if fields:
+    allowed_order={'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'notes':('title','category','updated'),'settings':('title',)}[page]
+    ordered=[v.strip() for v in fields.split(',') if v.strip() in allowed_order]
+    for index,field in enumerate(dict.fromkeys(ordered),1):
+     props.append(f'--order-{field}:{index}')
+   rule=root+'{'+ ';'.join(props)+'}' 
    if device=='mobile':rule='@media(max-width:700px){'+rule+'}'
    css.append(rule)
    bold=opts.get(f'layout_{page}_{device}_bold','')
