@@ -71,12 +71,12 @@ def safe_post(req):
  if origin and origin.split('://')[-1]!=host: raise HTTPException(403,'Ungueltiger Ursprung')
 
 def render(req,name,**kw):
- page_key={'home.html':'notes','edit.html':'notes','pantry.html':'pantry','pantry_edit.html':'pantry','shopping.html':'shopping','shopping_archive.html':'shopping','storage.html':'storage','storage_edit.html':'storage','settings.html':'settings'}.get(name,'notes')
+ page_key={'home.html':'notes','edit.html':'notes','pantry.html':'pantry','pantry_edit.html':'pantry','shopping.html':'shopping','shopping_archive.html':'shopping','storage.html':'storage','storage_edit.html':'storage','settings.html':'settings','plotten.html':'plotten'}.get(name,'notes')
  opts={}
  try:
   with db() as c:opts={r['key']:r['value'] for r in c.execute("SELECT key,value FROM app_settings WHERE key LIKE 'layout_%' OR key LIKE 'hide_tab_%'")}
  except sqlite3.OperationalError:pass
- pages=('notes','pantry','shopping','storage','settings')
+ pages=('notes','pantry','shopping','storage','plotten','settings')
  hidden_tabs={k for k in pages if opts.get('hide_tab_'+k)=='yes'}
  css=[]
  for page in pages:
@@ -96,12 +96,12 @@ def render(req,name,**kw):
    if cols in ('1','2','3','4'):props.append(f'--list-columns:{cols}')
    fields=opts.get(f'layout_{page}_{device}_fields','')
    if fields:
-    allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',)}[page]
+    allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',),'plotten':('name','manufacturer','kind','size','quantity','status')}[page]
     for field in allowed:
      if field not in fields.split(','):props.append(f'--show-{field}:none')
    # Respect the user-defined field order in list summaries.
    if fields:
-    allowed_order={'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'notes':('title','category','updated'),'settings':('title',)}[page]
+    allowed_order={'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'notes':('title','category','updated'),'settings':('title',),'plotten':('name','manufacturer','kind','size','quantity','status')}[page]
     ordered=[v.strip() for v in fields.split(',') if v.strip() in allowed_order]
     for index,field in enumerate(dict.fromkeys(ordered),1):
      props.append(f'--order-{field}:{index}')
@@ -116,7 +116,7 @@ def render(req,name,**kw):
       rule=root+' '+selectors[key]+'{font-weight:750}'
       if device=='mobile':rule='@media(max-width:700px){'+rule+'}'
       css.append(rule)
- return tpl.TemplateResponse(name,{'request':req,'user':user(req),'page_key':page_key,'nav_items':[('notes','Notizen','/'),('pantry','Vorräte','/pantry'),('shopping','Einkaufszettel','/shopping'),('storage','Lager','/storage'),('settings','Einstellungen','/settings')],'hidden_tabs':hidden_tabs,'layout_css':'\n'.join(css),**kw})
+ return tpl.TemplateResponse(name,{'request':req,'user':user(req),'page_key':page_key,'nav_items':[('notes','Notizen','/'),('pantry','Vorräte','/pantry'),('shopping','Einkaufszettel','/shopping'),('storage','Lager','/storage'),('plotten','Plotten','/plotten'),('settings','Einstellungen','/settings')],'hidden_tabs':hidden_tabs,'layout_css':'\n'.join(css),**kw})
 def go(path): return RedirectResponse(path,status_code=303)
 
 def cfg():
@@ -445,3 +445,6 @@ if DB.exists() and not backup_file.exists():
  except Exception as exc: print('WARNUNG: Datenbanksicherung fehlgeschlagen:',repr(exc),flush=True)
 from app.features import install_features
 install_features(app, db, require, writer, safe_post, render, go, now, BASE, FILES, hash_pw, cfg)
+
+from app.plotten import install_plotten
+install_plotten(app,db,require,writer,safe_post,render,go,now)
