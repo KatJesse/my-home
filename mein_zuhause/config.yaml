@@ -1,5 +1,5 @@
 name: Mein Zuhause
-version: "0.2.2"
+version: "0.2.3"
 slug: mein_zuhause
 description: Private Haushaltswissensdatenbank mit OCR und PDF-Export
 url: https://github.com/DEIN-NAME/mein-zuhause-addon
