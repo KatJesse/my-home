@@ -13,6 +13,7 @@ def install_plotten(app,db,require,writer,safe_post,render,go,now):
   CREATE TABLE IF NOT EXISTS plot_orders(id INTEGER PRIMARY KEY,customer TEXT NOT NULL,manufacturer TEXT NOT NULL,kind TEXT NOT NULL,size TEXT NOT NULL,color TEXT NOT NULL DEFAULT '',quantity INTEGER NOT NULL CHECK(quantity>0),unit_cents INTEGER NOT NULL DEFAULT 0,plotted INTEGER NOT NULL DEFAULT 0,weeded INTEGER NOT NULL DEFAULT 0,pressed INTEGER NOT NULL DEFAULT 0,paid INTEGER NOT NULL DEFAULT 0,delivered INTEGER NOT NULL DEFAULT 0,archived INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created TEXT NOT NULL,updated TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS plot_purchases(id INTEGER PRIMARY KEY,order_date TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',created TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS plot_purchase_items(id INTEGER PRIMARY KEY,purchase_id INTEGER NOT NULL REFERENCES plot_purchases(id) ON DELETE CASCADE,stock_id INTEGER NOT NULL REFERENCES plot_stock(id),quantity INTEGER NOT NULL CHECK(quantity>0),unit_cents INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS plot_foil_stock(id INTEGER PRIMARY KEY,color TEXT NOT NULL,size TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 0,UNIQUE(color,size));
   CREATE TABLE IF NOT EXISTS plot_movements(id INTEGER PRIMARY KEY,stock_id INTEGER NOT NULL REFERENCES plot_stock(id),delta INTEGER NOT NULL,reason TEXT NOT NULL,ref_id INTEGER,created TEXT NOT NULL);
   ''')
  with db() as c:
@@ -61,7 +62,7 @@ def install_plotten(app,db,require,writer,safe_post,render,go,now):
   rows=c.execute('''SELECT s.*,COALESCE((SELECT SUM(o.quantity-o.pressed) FROM plot_orders o WHERE o.manufacturer=s.manufacturer AND o.kind=s.kind AND o.size=s.size AND o.color=s.color AND o.archived=0),0) reserved FROM plot_stock s ORDER BY manufacturer,kind,color,size''').fetchall()
   return rows
  @app.get('/plotten',response_class=HTMLResponse)
- def plot_page(req:Request,q:str='',filter:str='',view:str='active',tab:str='orders'):
+ def plot_page(req:Request,q:str='',filter:str='',view:str='active',tab:str='orders',sort:str='manufacturer',direction:str='asc'):
   require(req)
   if filter not in ('','plotted','weeded','pressed','paid','delivered'):filter=''
   if view not in ('active','archive'):view='active'
@@ -73,7 +74,16 @@ def install_plotten(app,db,require,writer,safe_post,render,go,now):
    orders=c.execute(sql+' ORDER BY id DESC',args).fetchall()
    purchases=c.execute('SELECT * FROM plot_purchases ORDER BY order_date DESC,id DESC LIMIT 30').fetchall()
    details={r['id']:c.execute('''SELECT i.*,s.manufacturer,s.kind,s.size,s.color FROM plot_purchase_items i JOIN plot_stock s ON s.id=i.stock_id WHERE purchase_id=?''',(r['id'],)).fetchall() for r in purchases}
-   return render(req,'plotten.html',orders=orders,stocks=context(c),purchases=purchases,purchase_details=details,q=q,filter=filter,view=view,statuses=STATUSES,tab=tab)
+   sort_fields={'manufacturer','kind','color','size','quantity','reserved','available'}
+   if sort not in sort_fields:sort='manufacturer'
+   if direction not in ('asc','desc'):direction='asc'
+   stocks=list(context(c))
+   def sortkey(r):
+    v=(r['quantity']-r['reserved']) if sort=='available' else r[sort]
+    return (v.casefold() if isinstance(v,str) else v,r['id'])
+   stocks.sort(key=sortkey,reverse=direction=='desc')
+   foils=c.execute('SELECT * FROM plot_foil_stock ORDER BY color COLLATE NOCASE,size COLLATE NOCASE').fetchall()
+   return render(req,'plotten.html',orders=orders,stocks=stocks,foils=foils,sort=sort,direction=direction,purchases=purchases,purchase_details=details,q=q,filter=filter,view=view,statuses=STATUSES,tab=tab)
  @app.post('/plotten/order')
  def order_save(req:Request,id:int=Form(0),customer:str=Form(...),manufacturer:str=Form(...),kind:str=Form(...),size:str=Form(...),color:str=Form(...),quantity:str=Form(...),unit_price:str=Form('0'),notes:str=Form('')):
   check(req); name,m,k,s,clr=map(txt,(customer,manufacturer,kind,size,color));qty=integer(quantity,1);price=cents(unit_price)
@@ -165,4 +175,29 @@ def install_plotten(app,db,require,writer,safe_post,render,go,now):
    # Keep linked orders and their reservations in sync with stock identity.
    c.execute('UPDATE plot_stock SET manufacturer=?,kind=?,size=?,color=? WHERE id=?',(m,k,sz,clr,sid))
    c.execute('UPDATE plot_orders SET manufacturer=?,kind=?,size=?,color=? WHERE manufacturer=? AND kind=? AND size=? AND color=?',(m,k,sz,clr,old['manufacturer'],old['kind'],old['size'],old['color']))
+  return go('/plotten?tab=lager')
+
+ @app.post('/plotten/foil/save')
+ def foil_save(req:Request,id:int=Form(0),color:str=Form(...),size:str=Form(...),quantity:str=Form(...)):
+  check(req)
+  clr,sz=map(txt,(color,size));qty=integer(quantity)
+  with db() as c:
+   c.execute('BEGIN IMMEDIATE')
+   if id:
+    if not c.execute('SELECT 1 FROM plot_foil_stock WHERE id=?',(id,)).fetchone():raise HTTPException(404,'Folie nicht gefunden')
+    try:c.execute('UPDATE plot_foil_stock SET color=?,size=?,quantity=? WHERE id=?',(clr,sz,qty,id))
+    except Exception as e:
+     if 'UNIQUE constraint' in str(e):raise HTTPException(409,'Folie mit dieser Farbe und Groesse existiert bereits')
+     raise
+   else:
+    if c.execute('SELECT 1 FROM plot_foil_stock WHERE color=? AND size=?',(clr,sz)).fetchone():raise HTTPException(409,'Folie existiert bereits; bitte bearbeiten')
+    c.execute('INSERT INTO plot_foil_stock(color,size,quantity) VALUES (?,?,?)',(clr,sz,qty))
+  return go('/plotten?tab=lager')
+ @app.post('/plotten/foil/{fid}/take')
+ def foil_take(req:Request,fid:int):
+  check(req)
+  with db() as c:
+   c.execute('BEGIN IMMEDIATE')
+   cur=c.execute('UPDATE plot_foil_stock SET quantity=quantity-1 WHERE id=?',(fid,))
+   if not cur.rowcount:raise HTTPException(404,'Folie nicht gefunden')
   return go('/plotten?tab=lager')
