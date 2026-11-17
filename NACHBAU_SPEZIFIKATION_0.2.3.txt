@@ -1,0 +1,17 @@
+MEIN ZUHAUSE – NACHBAU-SPEZIFIKATION / STAND 0.2.3
+
+Basis: Home Assistant OS Add-on für armv7/aarch64, FastAPI/Jinja2/SQLite, HTML/CSS, ReportLab, OCR. Ausgangsbasis und Schema in NACHBAU_SPEZIFIKATION_0.2.0.txt und UPDATE_0.2.2.md.
+
+Die Konfiguration der neuen Funktionen wird als key/value in app_settings gespeichert. Navigation: hide_tab_notes, hide_tab_pantry, hide_tab_shopping, hide_tab_storage, hide_tab_settings mit yes/no. Button: show_low_button yes/no. Layout: layout_{page}_{device}_{field}, page = notes/pantry/shopping/storage/settings, device=desktop/mobile, field=font/columns/gap/rowgap/menugap/bold/fields/stripe1/stripe2. Farben nur #RRGGBB. Feldnamen per Whitelist. CSS ausschließlich aus validierten Werten zusammensetzen.
+
+GET /settings rendert Optionen und Medienliste. POST /settings/appearance: Admin, same-origin POST, validiert Zahlen/Farben/Feldnamen, speichert Einstellungen. POST /settings/media/{kind}/{id}/delete: Admin, löscht Attachment aus SQLite und Datei oder entfernt Verweis storage_boxes.image_id und Datei. OCR-Suchindex bei Notiz-Anhang aktualisieren. Bildvorschau nutzt bestehende geschützte Routen GET /attachments/{id} und GET /storage/image/{id}. Medien-Upload-Datum wird derzeit über mtime der Datei angenähert.
+
+GET /shopping: ORDER BY checked ASC, lower(store) ASC, position ASC, id ASC. Toggle-Formulare übermitteln store als verstecktes Feld, POST /shopping/{id}/toggle leitet wieder nach /shopping?store=... zurück. Bearbeitungsformular übermittelt filter_store.
+
+Notiz-Editor: addTodo() erzeugt eine div.todo-row mit input type=checkbox und span.todo-text ohne Platzhalter. Event 'change' toggelt todo-done auf dem umgebenden Element. Vor Submit wird der DOM geklont und der checked-Zustand explizit als HTML-Attribut gesetzt, damit clean_html() ihn erhält. CSS stellt Checkbox links und Text rechts dar.
+
+Hauptnavigation wird über render() dynamisch in base.html eingespeist; die aktive Seite erhält .active. CSS-Variablen in der Seite: --list-font, --row-gap, --info-gap, --menu-gap, --stripe1, --stripe2, --list-columns. Mobile-Regeln per @media(max-width:700px). Layout und Sichtbarkeit bleiben unabhängig vom PDF.
+
+Datenbestand: HA-Add-on persistent unter /data, PDF-Ziel über options.json oder direkte SMB-Konfiguration. Beim Update niemals die Datenbank, Uploads oder options.json durch Repository-Dateien ersetzen. Sicherheitskonzept: Admin-only Einstellungen und Medienlöschung, Nutzerrollen reader/writer/admin, same-origin POST, keine Kennwörter in GitHub.
+
+Wiederherstellung: HA-Backup einschließlich Add-on-Daten und SMB-Sicherung; ein PDF allein stellt nicht die editierbare Notiz wieder her.

@@ -1,0 +1,54 @@
+MEIN ZUHAUSE – VOLLSTÄNDIGE TECHNISCHE NACHBAU-SPEZIFIKATION – 0.2.0
+====================================================================
+Zweck: Eigenständige, lokal auf Home Assistant OS installierbare Haushaltsverwaltung für Raspberry Pi 4 mit SSD. Zugriff im Heimnetz und per VPN. Kein HACS notwendig.
+
+QUELLCODE / INSTALLATION
+GitHub-Repository mit repository.yaml im Root, Unterordner mein_zuhause mit config.yaml, build.yaml, Dockerfile, requirements.txt, run.sh, app/main.py, app/features.py, app/templates/*.html und app/static/style.css. Home Assistant OS > Einstellungen > Apps > App-Store > Repository-URL hinzufügen. Installierte App beim Update NICHT deinstallieren. Versionsnummer 0.2.0.
+Dockerfile baut Python-Venv mit FastAPI, Jinja2, SQLite (stdlib), ReportLab, BeautifulSoup, Pillow, pypdf, Tesseract OCR und pdftoppm. run.sh startet uvicorn app.main:app auf Port 8099. Persistente Daten unter HAUS_DATA=/config, SQLite house.db, Anhänge uploads/; PDF-Ausgabe konfigurierbar über /data/options.json und pdf_directory, z.B. /share/MeinZuhauseNAS/INTENSO/MeinZuhause. Netzwerkspeicher wird in Home Assistant OS als CIFS-Share eingebunden; die SSD-Unterordner müssen anhand der tatsächlichen Einbindung geprüft werden.
+
+DATENBANK
+Originaltabellen: users(id,username,password,role), sessions(tokenhash,user_id,expires), categories(id,name), notes(id,title,body,category_id,owner_id,status,updated,created), attachments(id,note_id,name,mime,ocr,width_mm), revisions(id,note_id,title,body,created), note_search(FTS5).
+Neue Tabellen in app/features.py: hidden_categories(user_id,category_id), app_settings(key,value), pantry_locations(id,name), pantry_shelves(id,location_id,name), pantry_categories(id,name), pantry_items(id,name,quantity,unit,minimum,category_id,shelf_id,expires,frozen,opened,used_amount,notes,barcode,updated), shopping(id,name,quantity,unit,store,position,checked,pantry_id), storage_places(id,name), storage_boxes(id,number,title,place_id,keywords,notes,metadata,image_id,updated).
+Schema wird per CREATE TABLE IF NOT EXISTS beim Start ergänzt. Vor Feature-Migration wird house-before-0.2.0.db als SQLite-Backup erzeugt. Alte Benutzerrolle member wird zu writer migriert. SQLite PRAGMA foreign_keys=ON und WAL-Modus.
+
+RECHTE
+admin: alle Funktionen, Benutzerverwaltung; writer: Daten schreiben, nicht Benutzer verwalten; reader: lesen, keine mutierenden Datenrouten. Session-Token als SHA256-Hash in DB, Passwort PBKDF2-HMAC-SHA256 310000 Iterationen mit zufälligem Salt. POST-Origin-Prüfung. Privater Betrieb nur im Heimnetz/VPN. Letzter Admin kann nicht herabgestuft werden.
+
+OBERFLÄCHE
+Responsive Jinja2-Templates, fünf Menüs: Notizen, Vorräte, Einkaufszettel, Lager, Einstellungen. Notizen mit Richtext contenteditable, Checkboxes als <input type=checkbox> im HTML. Bei Check-Änderung CSS .todo-done auf Absatz. HTML-Sanitizer entfernt unsichere Attribute/Tags, erhält type=checkbox und checked. Notiz-Speichern mit action=stay oder close; close navigiert zu /. Sortier- und Filterparameter: q,category_id,status,sort. Kategorie-Sichtbarkeit je Benutzer.
+
+PDF / OCR
+PDF bei Speichern einer Notiz aus HTML-Text plus Bildanhängen via ReportLab A4; Bildbreite pro Anhang. Keine Bild-Dateinamen als Bildunterschrift im PDF. Sonstige Anhangs-Dateinamen ebenfalls nicht in PDF. HTML-Checkboxen als [x]/[ ] im PDF. PDF wird im konfigurierten FRITZ!NAS-Ordner nach Kategorie abgelegt und bei Änderung ersetzt. OCR über Tesseract für Bildanhänge und für gescannte PDFs (pdftoppm). OCR-Text in FTS5 indexiert. Fehlgeschlagene PDF-Exporte werden protokolliert; automatische Retry-Warteschlange noch nicht implementiert.
+
+VORRÄTE
+Lagerplätze mit Regalfächern, eigene Vorratskategorien. Lebensmittel nur mit Bezeichnung verpflichtend; optional Menge, Einheit, Mindestmenge, Ablaufdatum, Einfrierdatum, geöffnet, entnommene Menge, Barcode, Notiz, Regalfach, Kategorie. Suche über Text, Kategorie, Lagerplatz, Ablaufstatus; Sortierung. Warnschwelle expiry_days in app_settings (Standard 14 Tage). Abgelaufen = Ablaufdatum < heute; bald = heute bis heute + Warnschwelle. Einzelne Vorräte oder alle unter Mindestbestand auf Einkaufszettel übernehmen.
+
+EINKAUFSZETTEL
+Name, optionale Menge, Einheit, Geschäft, Position, erledigt, optional Verweis auf Vorrat. Manuelle Ergänzung, Änderungen, Löschen, Auf/Ab-Sortierung, Filter nach Geschäft. Keine automatische Bestandsbuchung beim Abhaken.
+
+LAGER
+Lagerorte (Keller, Dachboden etc.), Kisten/Gegenstände mit eindeutiger Kistennummer, Titel, Lagerort, Stichworten, Notizen, Freitext-Metadaten und einem Bild pro Kiste. Suche über Nummer, Titel, Stichworte, Notizen, Metadaten, Ort; Ortsfilter. Bilder unter uploads/<uuid>, Dateipfad nur in DB als image_id. Keine weiteren Dateianhänge in 0.2.0.
+
+EINSTELLUNGEN
+Benutzerliste nur für Admin, Rollenumstellung und Löschung, neuer Benutzer als writer. Persönliche Sichtbarkeit von Notizkategorien. Ablaufwarnzeit in Tagen. Datenträgeranzeige via shutil.disk_usage(BASE) als genutzte/gesamte GiB und Prozent; nicht automatisch NAS-Kapazität.
+
+DATENSICHERUNG / UPDATES
+Vor jedem Update vollständiges Home-Assistant-Backup einschließlich App-Daten und zusätzliche Kopie der FRITZ!NAS-Dokumente. GitHub-Repository-Dateien aktualisieren; Versionsnummer in config.yaml erhöhen, App-Store aktualisieren, App aktualisieren (nicht deinstallieren). Bestehendes pdf_directory beibehalten. Datenbank-Migrationen immer rückwärtskompatibel. Test: Altrezept öffnen, PDF-Export, Checkliste, Leserrechte, Vorräte, Einkaufszettel, Lager, Bild.
+
+DATEIÜBERSICHT
+app/main.py: Originalfunktionen Authentifizierung, Notizen, Anhänge, OCR, PDF, Suche; am Ende Feature-Installation.
+app/features.py: Schemaerweiterungen und Endpunkte für Vorräte, Einkauf, Lager, Einstellungen.
+app/templates/base.html: fünf Menüs.
+app/templates/home.html: Notizsuche/Sortierung.
+app/templates/edit.html: Editor/Checkbox/Speicheraktionen.
+app/templates/pantry*.html: Vorräte und Formulare.
+app/templates/shopping.html: Einkaufsliste.
+app/templates/storage*.html: Lager und Kisten.
+app/templates/settings.html: Rechte, Kategorien, Speicherplatz, Warnzeit.
+app/static/style.css: responsive Layout.
+
+EINSCHRÄNKUNGEN / WEITERENTWICKLUNG
+Noch kein Hardwaretest auf echtem Raspberry Pi in dieser Entwicklungssitzung. Kein Drag-and-drop für Einkaufszettel, keine Bestandsbuchung aus Einkauf, keine Mehrfachbilder pro Kiste, keine automatischen Erinnerungen, keine Transaktions-/Audit-Logs, kein Hintergrund-Retry für PDF. Ein gründlicher Security-Review und Ende-zu-Ende-Test sind vor der Ablage besonders sensibler Dokumente empfehlenswert.
+
+ERGÄNZUNG 0.2.1: PDF-SPEICHERZIEL
+Unter Einstellungen wird für Administratoren ein Formular zur Konfiguration des PDF-Speicherziels angezeigt. Modus local: Der bisherige Pfad aus Home-Assistant-Option pdf_directory wird genutzt; Home Assistant übernimmt die SMB-Einbindung und Authentifizierung. Modus smb: Zusätzlich zum lokalen PDF wird die Datei via smbclient auf einen SMB3-Server übertragen. Die Felder nas_mode, nas_server, nas_share, nas_folder, nas_user und nas_password werden in app_settings (SQLite) gespeichert. Das Passwort wird nie im HTML zurückgegeben; leeres Passwort beim Speichern bedeutet unverändert. Zugriff nur für Admin. SMB-Befehle laufen über subprocess ohne Shell und mit temporärer 0600-Authentifizierungsdatei, die anschließend gelöscht wird. samba-client ist im Dockerfile installiert. Die Speicherung des Passworts in SQLite ist unverschlüsselt; Schutz durch restriktive Rechte und Backups erforderlich. Beim SMB-Export wird pro Kategorie ein Verzeichnis angelegt. Archiv-/Löschvorgänge entfernen noch keine bereits remote gespeicherten Dateien. Bestehende PDF-Dateien und Datenbank bleiben erhalten. Für die produktive Nutzung bevorzugt die bereits in Home Assistant eingerichtete SMB-Netzwerkfreigabe.
