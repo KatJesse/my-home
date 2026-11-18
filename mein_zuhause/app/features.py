@@ -124,8 +124,8 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
  def shopping(req:Request,store:str=''):
   require(req)
   with db() as c:
-   rows=c.execute('SELECT * FROM shopping ORDER BY checked ASC,lower(store) ASC,position ASC,id ASC').fetchall();stores=[r[0] for r in c.execute("SELECT DISTINCT store FROM shopping WHERE store!='' ORDER BY store")]
-  return render(req,'shopping.html',items=[r for r in rows if not store or r['store']==store],stores=stores,store=store)
+   rows=c.execute('SELECT * FROM shopping ORDER BY position ASC,id ASC').fetchall();stores=[r[0] for r in c.execute("SELECT DISTINCT store FROM shopping WHERE store!='' ORDER BY store")]
+  return render(req,'shopping.html',items=[r for r in rows if not store or (r['store']=='' if store=='__none__' else r['store']==store)],stores=stores,store=store)
  @app.post('/shopping')
  def shopping_add(req:Request,name:str=Form(...),quantity:str=Form(''),unit:str=Form(''),store:str=Form('')):
   check(req)
@@ -135,7 +135,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
  def shopping_close(req:Request,store:str=Form(''),scope:str=Form('all')):
   check(req)
   with db() as c:
-   rows=c.execute('SELECT * FROM shopping WHERE store=? ORDER BY position,id',(store,)).fetchall() if store else c.execute('SELECT * FROM shopping ORDER BY position,id').fetchall()
+   rows=c.execute('SELECT * FROM shopping WHERE store=? ORDER BY position,id',('' if store=='__none__' else store,)).fetchall() if store else c.execute('SELECT * FROM shopping ORDER BY position,id').fetchall()
    if scope not in ('all','checked'):raise HTTPException(400,'Ungueltiger Archivmodus')
    if scope=='checked':rows=[r for r in rows if r['checked']]
    if not rows:return go('/shopping'+('?' + urlencode({'store':store}) if store else ''))
@@ -143,6 +143,22 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
    cur=c.execute('INSERT INTO shopping_archives(closed_at,store,item_count) VALUES (?,?,?)',(now(),archive_store,len(rows)))
    for r in rows:c.execute('INSERT INTO shopping_archive_items(archive_id,name,quantity,unit,store,position,checked,pantry_id) VALUES (?,?,?,?,?,?,?,?)',(cur.lastrowid,r['name'],r['quantity'],r['unit'],r['store'],r['position'],r['checked'],r['pantry_id']))
    c.executemany('DELETE FROM shopping WHERE id=?',[(r['id'],) for r in rows])
+  return go('/shopping'+('?' + urlencode({'store':store}) if store else ''))
+ @app.post('/shopping/reorder')
+ async def shopping_reorder(req:Request):
+  check(req);safe_post(req)
+  form=await req.form();store=str(form.get('store',''))
+  raw=str(form.get('order',''))
+  try:ids=[int(x) for x in raw.split(',') if x]
+  except ValueError:raise HTTPException(400,'Ungueltige Reihenfolge')
+  if len(ids)!=len(set(ids)):raise HTTPException(400,'Doppelte Eintraege')
+  with db() as c:
+   rows=c.execute('SELECT id,store FROM shopping').fetchall()
+   visible={r['id'] for r in rows if not store or (r['store']=='' if store=='__none__' else r['store']==store)}
+   if set(ids)!=visible:raise HTTPException(409,'Liste hat sich geaendert, bitte neu laden')
+   all_ids=[r['id'] for r in c.execute('SELECT id FROM shopping ORDER BY position,id')]
+   it=iter(ids);new_order=[next(it) if x in visible else x for x in all_ids]
+   for pos,ident in enumerate(new_order,1):c.execute('UPDATE shopping SET position=? WHERE id=?',(pos,ident))
   return go('/shopping'+('?' + urlencode({'store':store}) if store else ''))
  @app.post('/shopping/{id}')
  def shopping_change(req:Request,id:int,action:str=Form('save'),name:str=Form(''),quantity:str=Form(''),unit:str=Form(''),store:str=Form(''),checked:str=Form(''),filter_store:str=Form('')):
@@ -285,7 +301,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
  async def appearance_save(req:Request):
   admin(req);safe_post(req)
   data=await req.form()
-  pages=('notes','pantry','shopping','storage','settings')
+  pages=('notes','pantry','shopping','storage','plotten','tasks','settings')
   keys={'font','columns','gap','rowgap','menugap','bold','fields','stripe1','stripe2'}
   with db() as c:
    for page in pages:
@@ -302,12 +318,13 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
         import re
         if not re.fullmatch(r'#[0-9a-fA-F]{6}',value):raise HTTPException(400,'Farbwert ungueltig')
        if key in ('bold','fields'):
-        allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',)}[page]
+        allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',),'plotten':('name','manufacturer','kind','size','quantity','status'),'tasks':('title',)}[page]
         value=','.join(v for v in value.split(',') if v in allowed)
        c.execute('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(field,value))
    for page in pages:
     key='hide_tab_'+page
     c.execute('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,'yes' if key in data else 'no'))
+   c.execute("INSERT INTO app_settings(key,value) VALUES ('show_plot_summary',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('yes' if 'show_plot_summary' in data else 'no',))
    c.execute("INSERT INTO app_settings(key,value) VALUES ('show_low_button',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('yes' if 'show_low_button' in data else 'no',))
   return go('/settings#appearance')
  @app.get('/settings',response_class=HTMLResponse)

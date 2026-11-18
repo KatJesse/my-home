@@ -83,7 +83,11 @@ def install_plotten(app,db,require,writer,safe_post,render,go,now):
     return (v.casefold() if isinstance(v,str) else v,r['id'])
    stocks.sort(key=sortkey,reverse=direction=='desc')
    foils=c.execute('SELECT * FROM plot_foil_stock ORDER BY color COLLATE NOCASE,size COLLATE NOCASE').fetchall()
-   return render(req,'plotten.html',orders=orders,stocks=stocks,foils=foils,sort=sort,direction=direction,purchases=purchases,purchase_details=details,q=q,filter=filter,view=view,statuses=STATUSES,tab=tab)
+   show_summary=c.execute("SELECT value FROM app_settings WHERE key='show_plot_summary'").fetchone()
+   show_summary=not show_summary or show_summary['value']!='no'
+   totals={field:sum(max(0,o['quantity']-o[field]) for o in orders) for field in STATUSES}
+   total_cents=sum(o['quantity']*o['unit_cents'] for o in orders)
+   return render(req,'plotten.html',show_summary=show_summary,open_totals=totals,total_cents=total_cents,orders=orders,stocks=stocks,foils=foils,sort=sort,direction=direction,purchases=purchases,purchase_details=details,q=q,filter=filter,view=view,statuses=STATUSES,tab=tab)
  @app.post('/plotten/order')
  def order_save(req:Request,id:int=Form(0),customer:str=Form(...),manufacturer:str=Form(...),kind:str=Form(...),size:str=Form(...),color:str=Form(...),quantity:str=Form(...),unit_price:str=Form('0'),notes:str=Form('')):
   check(req); name,m,k,s,clr=map(txt,(customer,manufacturer,kind,size,color));qty=integer(quantity,1);price=cents(unit_price)
