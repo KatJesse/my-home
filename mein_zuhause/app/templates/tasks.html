@@ -9,7 +9,7 @@
 <h3>{{selected.title}}</h3>
 {% if selected.notes %}<p class="muted-small">{{selected.notes}}</p>{% endif %}
 <div class="task-items" id="task-items">
-{% for i in items %}<div class="task-row {% if i.done %}is-done{% endif %}">
+{% for i in items %}<div class="task-row {% if i.done %}is-done{% endif %}" data-id="{{i.id}}"><div class="task-sort-arrows" hidden><button type="button" class="mini" onclick="moveTask(this,-1)" title="Nach oben">↑</button><button type="button" class="mini" onclick="moveTask(this,1)" title="Nach unten">↓</button></div>
 {% if not archive and user.role!='reader' %}<form method="post" action="/tasks/item/{{i.id}}/action" class="task-check"><button class="mini" name="action" value="toggle" title="Erledigt umschalten" aria-label="{{'Als offen markieren' if i.done else 'Als erledigt markieren'}}">{{'☑' if i.done else '☐'}}</button></form>{% else %}<span class="task-check">{{'☑' if i.done else '☐'}}</span>{% endif %}
 <div class="task-text"><strong>{{i.title}}</strong>{% if i.due_date %}<span class="task-due {% if days_left[i.id] < 0 %}overdue{% elif days_left[i.id] == 0 %}today{% endif %}" title="Fällig am {{i.due_date}}">{% if days_left[i.id] < 0 %}{{-days_left[i.id]}} T. überfällig{% elif days_left[i.id] == 0 %}Heute{% else %}{{days_left[i.id]}} T.{% endif %}</span>{% endif %}{% if i.notes %}<div class="muted-small">{{i.notes}}</div>{% endif %}</div>
 {% if not archive and user.role!='reader' %}<div class="task-item-tools" hidden>
@@ -18,6 +18,7 @@
 </div>{% endif %}</div>{% else %}<p>Diese Liste enthält noch keine Aufgaben.</p>{% endfor %}
 </div>
 <div class="task-bottom-controls">
+{% if not archive and user.role!='reader' %}<button type="button" class="secondary" id="task-sort-toggle" onclick="toggleTaskSort()">Sortieren aktivieren</button><form method="post" action="/tasks/reorder" id="task-sort-form" hidden><input type="hidden" name="list_id" value="{{selected.id}}"><input type="hidden" name="order" id="task-sort-order"><button type="submit" onclick="document.getElementById('task-sort-order').value=[...document.querySelectorAll('#task-items .task-row')].map(e=>e.dataset.id).join(',')">Reihenfolge speichern</button><button type="button" class="secondary" onclick="location.reload()">Abbrechen</button></form>{% endif %}
 {% if not archive and user.role!='reader' %}<button type="button" class="secondary" id="task-edit-toggle" aria-expanded="false" onclick="toggleTaskEdit()">Liste bearbeiten</button>
 <details class="task-add"><summary>Neue Aufgabe hinzufügen</summary><form method="post" action="/tasks/item" class="inline-form"><input type="hidden" name="list_id" value="{{selected.id}}"><input name="title" required placeholder="Neue Aufgabe"><input name="notes" placeholder="Notiz (optional)"><label>Fällig am (optional)<input type="date" name="due_date"></label><button>Aufgabe hinzufügen</button></form></details>{% endif %}
 {% if user.role!='reader' %}<details><summary>Listenparameter und Verwaltung</summary>
@@ -29,4 +30,7 @@
 {% if not archive and user.role!='reader' %}<details><summary>Neue Aufgabenliste anlegen</summary><form method="post" action="/tasks/list" class="inline-form"><input name="title" required placeholder="Name der Liste"><input name="notes" placeholder="Beschreibung (optional)"><button>Liste anlegen</button></form></details>{% endif %}
 </section>
 <script>function toggleTaskEdit(){const b=document.getElementById('task-edit-toggle');const enabled=b.getAttribute('aria-expanded')!=='true';b.setAttribute('aria-expanded',String(enabled));b.textContent=enabled?'Bearbeiten beenden':'Liste bearbeiten';document.querySelectorAll('.task-item-tools').forEach(el=>{el.hidden=!enabled});}</script>
-{% endblock %}
+<script>
+function toggleTaskSort(){const f=document.getElementById('task-sort-form');const b=document.getElementById('task-sort-toggle');const active=f.hidden;f.hidden=!active;b.hidden=active;document.querySelectorAll('.task-sort-arrows').forEach(x=>x.hidden=!active);}
+function moveTask(button,delta){const row=button.closest('.task-row');const parent=row.parentElement;const other=delta<0?row.previousElementSibling:row.nextElementSibling;if(!other)return;if(delta<0)parent.insertBefore(row,other);else parent.insertBefore(other,row);}
+</script>{% endblock %}
