@@ -55,6 +55,18 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
    elif action=='delete':c.execute('DELETE FROM task_lists WHERE id=?',(id,))
    else:raise HTTPException(400,'Ungueltige Aktion')
   return go('/tasks?archive='+('1' if action=='archive' else '0'))
+ @app.post('/tasks/reorder')
+ def reorder(req:Request,list_id:int=Form(...),order:str=Form(...)):
+  check(req)
+  with db() as c:
+   l=valid_list(c,list_id)
+   if l['archived']:raise HTTPException(409,'Archivierte Liste')
+   actual={r['id'] for r in c.execute('SELECT id FROM task_items WHERE list_id=?',(list_id,))}
+   try:ids=[int(x) for x in order.split(',') if x]
+   except ValueError:raise HTTPException(400,'Ungültige Sortierung')
+   if len(ids)!=len(actual) or set(ids)!=actual:raise HTTPException(400,'Aufgabenliste wurde geändert; bitte neu laden')
+   for n,ident in enumerate(ids,1):c.execute('UPDATE task_items SET position=?,updated=? WHERE id=?',(n,now(),ident))
+  return go('/tasks?list_id='+str(list_id))
  @app.post('/tasks/item')
  def item_save(req:Request,list_id:int=Form(...),id:int=Form(0),title:str=Form(...),notes:str=Form(''),due_date:str=Form('')):
   check(req);title=title.strip()[:300]

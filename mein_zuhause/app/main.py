@@ -116,7 +116,7 @@ def render(req,name,**kw):
       rule=root+' '+selectors[key]+'{font-weight:750}'
       if device=='mobile':rule='@media(max-width:700px){'+rule+'}'
       css.append(rule)
- return tpl.TemplateResponse(name,{'request':req,'user':user(req),'page_key':page_key,'nav_items':[('notes','Notizen','/'),('pantry','Vorräte','/pantry'),('shopping','Einkaufszettel','/shopping'),('storage','Lager','/storage'),('plotten','Plotten','/plotten'),('tasks','Aufgaben','/tasks'),('food','Essen','/food'),('settings','Einstellungen','/settings')],'hidden_tabs':hidden_tabs,'layout_css':'\n'.join(css),**kw})
+ return tpl.TemplateResponse(name,{'request':req,'user':user(req),'page_key':page_key,'nav_items':[('notes','Notizen','/'),('pantry','Vorräte','/pantry'),('shopping','Einkaufszettel','/shopping'),('storage','Lager','/storage'),('plotten','Plotten','/plotten'),('tasks','Aufgaben','/tasks'),('food','Essen','/food'),('settings','Einstellungen','/settings')],'hidden_tabs':hidden_tabs,'layout_css':'\n'.join(css),'ui_labels_json':json.dumps(load_ui_labels(),ensure_ascii=False).replace('<','\\u003c'),'ui_label_catalog':UI_LABEL_CATALOG,'ui_label_values':load_ui_labels(),**kw})
 def go(path): return RedirectResponse(path,status_code=303)
 
 def cfg():
@@ -448,6 +448,35 @@ install_features(app, db, require, writer, safe_post, render, go, now, BASE, FIL
 
 from app.plotten import install_plotten
 install_plotten(app,db,require,writer,safe_post,render,go,now)
+
+
+UI_LABEL_CATALOG=['# · ·  /  /  /  ·  Stück · Gesamtpreis Auftrag:  €', '(/)', '+', '+ Einkaufszettel', '+ Kiste / Gegenstand', '+ Lebensmittel', '+ Neuer Eintrag', '/ Abgelaufen Bald fällig', '1. Liste', 'Abbrechen', 'Abgleichen', 'Abmelden', 'Aktive Listen', 'Aktuelle Woche', 'Anhang löschen', 'Anmelden / einrichten', 'Archivieren', 'Archivierte Gerichte', 'Archivierte Gerichte löschen', 'Archivierte Listen', 'Artikel hinzufügen', 'Auf Einkaufszettel', 'Aufgabe hinzufügen', 'Aufgaben', 'Auftrag speichern', 'Aufträge', 'Bearbeiten', 'Bearbeitet:', 'Benutzer anlegen (Schreiber)', 'Benutzer löschen', 'Benutzerverwaltung', 'Bestand erfassen', 'Bestellhistorie', 'Bestellung buchen', 'Bestellungen / Wareneingang', 'Bezeichnungen anpassen', 'Bezeichnungen speichern', 'Dateien hochladen und OCR ausführen', 'Dauerhaft löschen', 'Direktlinks zu allen Seiten', 'Dokumente und Bilder', 'Einkauf schließen und archivieren', 'Einkauf vom Artikel', 'Einkaufsarchiv', 'Einkaufszettel', 'Einstellungen', 'Eintrag verwalten', 'Endgültig löschen', 'Entnommen (−1)', 'ErsteinrichtungAnmelden', 'Essen', 'Essensarchiv', 'Essensarchiv öffnen', 'Essensplan', 'Essensverlauf löschen', 'Fett', 'Filtern', 'Folie hinzufügen', 'Folienlager', 'Foto', 'Foto hochladen / ersetzen', 'Gekauftes schließen und archivieren', 'Gericht archivieren', 'Gericht bearbeiten', 'Gericht hinzufügen', 'Gericht speichern', 'Gerichte', 'Geschäft filtern', 'Heute', 'Hinzufügen', 'In Einkaufszettel wiederherstellen', 'In Papierkorb', 'Inventur / Ist-Bestand abgleichen', 'Kategorien', 'Kursiv', 'Lager', 'Lagerorte verwalten', 'Lagerplätze', 'Lagerplätze, Regalfächer und Kategorien verwalten', 'Layout und Navigation speichern', 'Linie', 'Liste anlegen', 'Liste bearbeiten', 'Liste löschen', 'Liste speichern', 'Listenparameter und Verwaltung', 'Listenverwaltung', 'Löschen', 'Medienspeicher', 'Navigation und Layout', 'Neue Aufgabe hinzufügen', 'Neue Aufgabenliste anlegen', 'Neue Folie erfassen', 'Neue Lagerposition erfassen', 'Neuen Auftrag anlegen', 'Neues Gericht anlegen', 'Niedrige Bestände auf Einkaufszettel', 'Notiz speichern', 'Notizen', 'Notizkategorien anzeigen / ausblenden', 'Nr.  ·', 'Nächste Woche →', 'PDF-Speicherziel', 'Plotten', 'Rechte speichern', 'Regalfächer', 'Registerkarten anzeigen', 'Reihenfolge speichern', 'Sortieren aktivieren', 'Speichern', 'Speichern und schließen', 'Speicherplatz', 'Speicherziel speichern', 'Standardbezeichnungen wiederherstellen', 'Suche und Filter', 'Suchen / filtern', 'Textillager', 'Vorratsverwaltung', 'Vorräte', 'Weitere Größe / Position', 'Wiederherstellen', 'Zum Tag hinzufügen', 'Zurück zum Einkaufszettel', 'Zutaten', '·  ·  Min.', '· Bestellung #', '×', 'Änderungen speichern', 'Übernehmen', 'Überschrift', 'Übersicht der angezeigten Aufträge', '– Layout anpassen', '• Liste', '← Essensplan', '← Lager', '← Vorherige Woche', '← Vorräte', '← Übersicht', '↑', '↓', '☐ To-do', '✎', '✎ Auftrag bearbeiten', '✕']
+def load_ui_labels():
+ try:
+  with db() as c:
+   return {r['key'][6:]:r['value'] for r in c.execute("SELECT key,value FROM app_settings WHERE key LIKE 'label_%'") if r['value']}
+ except sqlite3.OperationalError:return {}
+
+@app.post('/settings/labels')
+async def save_ui_labels(req:Request):
+ u=require(req)
+ if u['role']!='admin':raise HTTPException(403,'Nur Administratoren')
+ safe_post(req)
+ data=await req.form()
+ with db() as c:
+  c.execute("DELETE FROM app_settings WHERE key LIKE 'label_%'")
+  for i,label in enumerate(UI_LABEL_CATALOG):
+   value=str(data.get('label_'+str(i),'')).strip()[:160]
+   if value and value!=label:c.execute('INSERT INTO app_settings(key,value) VALUES (?,?)',('label_'+label,value))
+ return go('/settings#labels')
+
+@app.post('/settings/labels/reset')
+def reset_ui_labels(req:Request):
+ u=require(req)
+ if u['role']!='admin':raise HTTPException(403,'Nur Administratoren')
+ safe_post(req)
+ with db() as c:c.execute("DELETE FROM app_settings WHERE key LIKE 'label_%'")
+ return go('/settings#labels')
 
 from app.tasks import install_tasks
 install_tasks(app,db,require,writer,safe_post,render,go,now)
