@@ -1,5 +1,6 @@
 """Independent task lists with archive and editable checklist items."""
 from fastapi import Request,Form,HTTPException
+from datetime import date
 from fastapi.responses import HTMLResponse
 
 def install_tasks(app,db,require,writer,safe_post,render,go,now):
@@ -9,6 +10,8 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
   CREATE TABLE IF NOT EXISTS task_items(id INTEGER PRIMARY KEY,list_id INTEGER NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,title TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',done INTEGER NOT NULL DEFAULT 0,position INTEGER NOT NULL DEFAULT 0,created TEXT NOT NULL,updated TEXT NOT NULL);
   CREATE INDEX IF NOT EXISTS idx_task_items_list ON task_items(list_id,done,position,id);
   ''')
+  columns={r['name'] for r in c.execute('PRAGMA table_info(task_items)')}
+  if 'due_date' not in columns:c.execute('ALTER TABLE task_items ADD COLUMN due_date TEXT DEFAULT NULL')
  def check(req):writer(req);safe_post(req)
  def valid_list(c,id):
   row=c.execute('SELECT * FROM task_lists WHERE id=?',(id,)).fetchone()
@@ -28,7 +31,9 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
     if selected['archived']!=int(bool(archive)):return go('/tasks?archive='+str(int(bool(selected['archived'])))+'&list_id='+str(list_id))
    else:selected=lists[0] if lists else None
    items=c.execute('SELECT * FROM task_items WHERE list_id=? ORDER BY done ASC,position ASC,id ASC',(selected['id'],)).fetchall() if selected else []
-  return render(req,'tasks.html',lists=lists,selected=selected,items=items,archive=bool(archive))
+  today=date.today()
+  days_left={i['id']:(date.fromisoformat(i['due_date'])-today).days if i['due_date'] else None for i in items}
+  return render(req,'tasks.html',lists=lists,selected=selected,items=items,archive=bool(archive),days_left=days_left)
  @app.post('/tasks/list')
  def list_save(req:Request,id:int=Form(0),title:str=Form(...),notes:str=Form('')):
   check(req);title=title.strip()[:160]
@@ -51,8 +56,11 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
    else:raise HTTPException(400,'Ungueltige Aktion')
   return go('/tasks?archive='+('1' if action=='archive' else '0'))
  @app.post('/tasks/item')
- def item_save(req:Request,list_id:int=Form(...),id:int=Form(0),title:str=Form(...),notes:str=Form('')):
+ def item_save(req:Request,list_id:int=Form(...),id:int=Form(0),title:str=Form(...),notes:str=Form(''),due_date:str=Form('')):
   check(req);title=title.strip()[:300]
+  if due_date:
+   try:due_date=date.fromisoformat(due_date).isoformat()
+   except ValueError:raise HTTPException(400,'Ungültiges Fälligkeitsdatum')
   if not title:raise HTTPException(400,'Aufgabe darf nicht leer sein')
   with db() as c:
    l=valid_list(c,list_id)
@@ -60,10 +68,10 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
    if id:
     i=valid_item(c,id)
     if i['list_id']!=list_id:raise HTTPException(400,'Falsche Liste')
-    c.execute('UPDATE task_items SET title=?,notes=?,updated=? WHERE id=?',(title,notes[:3000],now(),id))
+    c.execute('UPDATE task_items SET title=?,notes=?,due_date=?,updated=? WHERE id=?',(title,notes[:3000],due_date or None,now(),id))
    else:
     pos=c.execute('SELECT COALESCE(MAX(position),0)+1 FROM task_items WHERE list_id=?',(list_id,)).fetchone()[0]
-    c.execute('INSERT INTO task_items(list_id,title,notes,position,created,updated) VALUES (?,?,?,?,?,?)',(list_id,title,notes[:3000],pos,now(),now()))
+    c.execute('INSERT INTO task_items(list_id,title,notes,due_date,position,created,updated) VALUES (?,?,?,?,?,?,?)',(list_id,title,notes[:3000],due_date or None,pos,now(),now()))
    c.execute('UPDATE task_lists SET updated=? WHERE id=?',(now(),list_id))
   return go('/tasks?list_id='+str(list_id))
  @app.post('/tasks/item/{id}/action')
