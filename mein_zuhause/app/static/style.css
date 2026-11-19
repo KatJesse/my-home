@@ -28,3 +28,5 @@ header .nav-logout{margin:0;align-self:center}header .nav-logout button{font-siz
 
 /* 0.3.2: compact header and task sorting */
 header{padding-top:5px;padding-bottom:5px;gap:6px}header .mainnav{gap:5px}header .mainnav a{padding:5px 8px}.task-sort-arrows{display:flex;gap:4px}.task-sort-arrows[hidden],#task-sort-form[hidden],#task-sort-toggle[hidden]{display:none!important}#task-sort-form{display:flex;gap:8px;flex-wrap:wrap}.label-settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;max-height:600px;overflow-y:auto;margin-bottom:14px}.label-settings-grid input{width:100%}.settings-logout{padding:10px 16px}.settings-logout form{margin:0}.settings-logout button{padding:7px 12px}
+
+.editor .todo-row{display:flex;align-items:flex-start;gap:7px;margin:4px 0;min-height:1.5em}.editor .todo-row input[type=checkbox]{flex:0 0 auto;width:17px;height:17px;margin:4px 0 0;padding:0}.editor .todo-row .todo-text{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}.editor .todo-row.todo-done .todo-text{text-decoration:line-through;color:#69788b}
