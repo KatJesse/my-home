@@ -30,14 +30,11 @@ def install_food(app,db,require,writer,safe_post,render,go,now):
  def food(req:Request,week:int=0):
   require(req);monday=week_start(week);sunday=monday+timedelta(days=6)
   with db() as c:
-   cleanup(c)
    recipes=c.execute('SELECT * FROM food_recipes WHERE archived=0 ORDER BY title COLLATE NOCASE,id').fetchall()
    ingredients={r['id']:[dict(x) for x in c.execute('SELECT id,name FROM food_ingredients WHERE recipe_id=? ORDER BY position,id',(r['id'],))] for r in recipes}
    plan=c.execute('SELECT * FROM food_plan WHERE meal_date BETWEEN ? AND ? ORDER BY meal_date,id',(monday.isoformat(),sunday.isoformat())).fetchall()
-   yesterday=date.today()-timedelta(days=1)
-   yesterday_items=c.execute('SELECT * FROM food_plan WHERE meal_date=? ORDER BY id',(yesterday.isoformat(),)).fetchall() if yesterday<monday else []
-  days=[{'date':(monday+timedelta(days=i)).isoformat(),'label':WEEKDAYS[i],'items':[p for p in plan if p['meal_date']==(monday+timedelta(days=i)).isoformat() and p['meal_date']>=(date.today()-timedelta(days=1)).isoformat()]} for i in range(7)]
-  return render(req,'food.html',days=days,recipes=recipes,ingredients=ingredients,week=week,week_start=monday,week_end=sunday,yesterday_items=yesterday_items,today=date.today().isoformat())
+  days=[{'date':(monday+timedelta(days=i)).isoformat(),'label':WEEKDAYS[i],'items':[p for p in plan if p['meal_date']==(monday+timedelta(days=i)).isoformat()]} for i in range(7)]
+  return render(req,'food.html',days=days,recipes=recipes,ingredients=ingredients,week=week,week_start=monday,week_end=sunday,yesterday_items=[],today=date.today().isoformat())
  @app.post('/food/recipe')
  def save_recipe(req:Request,id:int=Form(0),title:str=Form(...),category:str=Form(''),description:str=Form(''),servings:str=Form(''),minutes:str=Form(''),source:str=Form(''),tags:str=Form(''),ingredients:str=Form('')):
   check(req);title=title.strip()[:160]
@@ -100,7 +97,6 @@ def install_food(app,db,require,writer,safe_post,render,go,now):
  def archive(req:Request):
   require(req)
   with db() as c:
-   cleanup(c)
    history=c.execute('SELECT * FROM food_plan WHERE meal_date<=? ORDER BY meal_date DESC,id DESC',(date.today().isoformat(),)).fetchall()
    recipes=c.execute('SELECT * FROM food_recipes WHERE archived=1 ORDER BY title COLLATE NOCASE').fetchall()
   return render(req,'food_archive.html',history=history,recipes=recipes)

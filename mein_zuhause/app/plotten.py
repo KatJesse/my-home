@@ -205,3 +205,23 @@ def install_plotten(app,db,require,writer,safe_post,render,go,now):
    cur=c.execute('UPDATE plot_foil_stock SET quantity=quantity-1 WHERE id=?',(fid,))
    if not cur.rowcount:raise HTTPException(404,'Folie nicht gefunden')
   return go('/plotten?tab=lager')
+
+ @app.post('/plotten/stock/{sid}/delete')
+ def stock_delete(req:Request,sid:int):
+  check(req)
+  with db() as c:
+   c.execute('BEGIN IMMEDIATE')
+   row=c.execute('SELECT * FROM plot_stock WHERE id=?',(sid,)).fetchone()
+   if not row:raise HTTPException(404,'Lagerposition nicht gefunden')
+   # Referenced stock IDs must remain intact to preserve purchase and movement history.
+   linked=c.execute('SELECT 1 FROM plot_purchase_items WHERE stock_id=? UNION SELECT 1 FROM plot_movements WHERE stock_id=? LIMIT 1',(sid,sid)).fetchone()
+   orders=c.execute('SELECT 1 FROM plot_orders WHERE manufacturer=? AND kind=? AND size=? AND color=? LIMIT 1',(row['manufacturer'],row['kind'],row['size'],row['color'])).fetchone()
+   if linked or orders:raise HTTPException(409,'Lagerposition ist mit Aufträgen oder Buchungen verknüpft und kann nicht gelöscht werden. Bitte Bestand per Inventur auf 0 setzen.')
+   c.execute('DELETE FROM plot_stock WHERE id=?',(sid,))
+  return go('/plotten?tab=inventur')
+ @app.post('/plotten/foil/{fid}/delete')
+ def foil_delete(req:Request,fid:int):
+  check(req)
+  with db() as c:
+   if not c.execute('DELETE FROM plot_foil_stock WHERE id=?',(fid,)).rowcount:raise HTTPException(404,'Folie nicht gefunden')
+  return go('/plotten?tab=lager')

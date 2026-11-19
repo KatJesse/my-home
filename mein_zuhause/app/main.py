@@ -137,6 +137,9 @@ def clean_html(value):
  for tag in list(soup.find_all(True)):
   if tag.name not in allowed: tag.unwrap(); continue
   attrs={}
+  if tag.name in ('div','span'):
+   classes=[x for x in tag.get('class',[]) if x in ('todo-row','todo-text','todo-done')]
+   if classes:attrs['class']=' '.join(classes)
   if tag.name=='a' and tag.get('href','').startswith(('https://','http://','mailto:')): attrs['href']=tag['href']
   if tag.name=='input' and tag.get('type')=='checkbox':
    attrs['type']='checkbox'
