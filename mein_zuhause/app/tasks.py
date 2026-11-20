@@ -1,6 +1,7 @@
 """Independent task lists with archive and editable checklist items."""
 from fastapi import Request,Form,HTTPException
 from datetime import date
+import json
 from fastapi.responses import HTMLResponse
 
 def install_tasks(app,db,require,writer,safe_post,render,go,now):
@@ -77,7 +78,7 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
    for n,ident in enumerate(ids,1):c.execute('UPDATE task_items SET position=?,updated=? WHERE id=?',(n,now(),ident))
   return go('/tasks?list_id='+str(list_id))
  @app.post('/tasks/item')
- def item_save(req:Request,list_id:int=Form(...),id:int=Form(0),title:str=Form(...),notes:str=Form(''),due_date:str=Form(''),parent_id:int=Form(0)):
+ def item_save(req:Request,list_id:int=Form(...),id:int=Form(0),title:str=Form(...),notes:str=Form(''),due_date:str=Form(''),parent_id:int=Form(0),subtasks_json:str=Form('')):
   check(req);title=title.strip()[:300]
   if due_date:
    try:due_date=date.fromisoformat(due_date).isoformat()
@@ -96,7 +97,29 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
     c.execute('UPDATE task_items SET title=?,notes=?,due_date=?,updated=? WHERE id=?',(title,notes[:3000],due_date or None,now(),id))
    else:
     pos=c.execute('SELECT COALESCE(MAX(position),0)+1 FROM task_items WHERE list_id=? AND item_archived=0 AND parent_id IS NULL',(list_id,)).fetchone()[0]
-    c.execute('INSERT INTO task_items(list_id,title,notes,due_date,parent_id,position,created,updated) VALUES (?,?,?,?,?,?,?,?)',(list_id,title,notes[:3000],due_date or None,parent_id or None,pos,now(),now()))
+    id=c.execute('INSERT INTO task_items(list_id,title,notes,due_date,parent_id,position,created,updated) VALUES (?,?,?,?,?,?,?,?)',(list_id,title,notes[:3000],due_date or None,parent_id or None,pos,now(),now())).lastrowid
+   # Subtasks submitted together with a new or edited parent task.
+   if not parent_id and subtasks_json:
+    try:
+     entries=json.loads(subtasks_json)
+     if not isinstance(entries,list) or len(entries)>200:raise ValueError()
+    except (ValueError,TypeError):raise HTTPException(400,'Ungültige Unteraufgaben')
+    for entry in entries:
+     if not isinstance(entry,dict):raise HTTPException(400,'Ungültige Unteraufgabe')
+     sub_title=str(entry.get('title','')).strip()[:300]
+     if not sub_title:continue
+     sub_date=str(entry.get('due_date','')).strip()
+     if sub_date:
+      try:sub_date=date.fromisoformat(sub_date).isoformat()
+      except ValueError:raise HTTPException(400,'Ungültiges Fälligkeitsdatum einer Unteraufgabe')
+     sub_id=int(entry.get('id') or 0)
+     if sub_id:
+      existing=valid_item(c,sub_id)
+      if existing['parent_id']!=id or existing['list_id']!=list_id or existing['item_archived']:raise HTTPException(400,'Ungültige Unteraufgabe')
+      c.execute('UPDATE task_items SET title=?,due_date=?,updated=? WHERE id=?',(sub_title,sub_date or None,now(),sub_id))
+     else:
+      pos=c.execute('SELECT COALESCE(MAX(position),0)+1 FROM task_items WHERE parent_id=?',(id,)).fetchone()[0]
+      c.execute('INSERT INTO task_items(list_id,title,due_date,parent_id,position,created,updated) VALUES (?,?,?,?,?,?,?)',(list_id,sub_title,sub_date or None,id,pos,now(),now()))
    c.execute('UPDATE task_lists SET updated=? WHERE id=?',(now(),list_id))
   return go('/tasks?list_id='+str(list_id))
  @app.post('/tasks/item/{id}/action')
