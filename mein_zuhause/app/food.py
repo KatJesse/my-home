@@ -32,9 +32,10 @@ def install_food(app,db,require,writer,safe_post,render,go,now):
   with db() as c:
    recipes=c.execute('SELECT * FROM food_recipes WHERE archived=0 ORDER BY title COLLATE NOCASE,id').fetchall()
    ingredients={r['id']:[dict(x) for x in c.execute('SELECT id,name FROM food_ingredients WHERE recipe_id=? ORDER BY position,id',(r['id'],))] for r in recipes}
+   food_opts={r['key']:r['value'] for r in c.execute("SELECT key,value FROM app_settings WHERE key IN ('food_remove_color','food_week_gap')")}
    plan=c.execute('SELECT * FROM food_plan WHERE meal_date BETWEEN ? AND ? ORDER BY meal_date,id',(monday.isoformat(),sunday.isoformat())).fetchall()
   days=[{'date':(monday+timedelta(days=i)).isoformat(),'label':WEEKDAYS[i],'items':[p for p in plan if p['meal_date']==(monday+timedelta(days=i)).isoformat()]} for i in range(7)]
-  return render(req,'food.html',days=days,recipes=recipes,ingredients=ingredients,week=week,week_start=monday,week_end=sunday,yesterday_items=[],today=date.today().isoformat())
+  return render(req,'food.html',days=days,recipes=recipes,ingredients=ingredients,week=week,week_start=monday,week_end=sunday,yesterday_items=[],today=date.today().isoformat(),food_remove_color=food_opts.get('food_remove_color','#8b95a3'),food_week_gap=food_opts.get('food_week_gap','26'))
  @app.post('/food/recipe')
  def save_recipe(req:Request,id:int=Form(0),title:str=Form(...),category:str=Form(''),description:str=Form(''),servings:str=Form(''),minutes:str=Form(''),source:str=Form(''),tags:str=Form(''),ingredients:str=Form('')):
   check(req);title=title.strip()[:160]

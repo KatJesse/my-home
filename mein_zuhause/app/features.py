@@ -121,11 +121,16 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
     if not c.execute('SELECT 1 FROM shopping WHERE pantry_id=? AND checked=0',(r['id'],)).fetchone():c.execute('INSERT INTO shopping(name,quantity,unit,position,pantry_id) VALUES (?,?,?,?,?)',(r['name'],max(0,r['minimum']-(r['quantity'] or 0)),r['unit'],c.execute('SELECT COALESCE(MAX(position),0)+1 FROM shopping').fetchone()[0],r['id']))
   return go('/shopping')
  @app.get('/shopping',response_class=HTMLResponse)
- def shopping(req:Request,store:str=''):
+ def shopping(req:Request,store:str='',sort:str='manual',direction:str='asc'):
   require(req)
   with db() as c:
    rows=c.execute('SELECT * FROM shopping ORDER BY position ASC,id ASC').fetchall();stores=[r[0] for r in c.execute("SELECT DISTINCT store FROM shopping WHERE store!='' ORDER BY store")]
-  return render(req,'shopping.html',items=[r for r in rows if not store or (r['store']=='' if store=='__none__' else r['store']==store)],stores=stores,store=store)
+  visible=[r for r in rows if not store or (r['store']=='' if store=='__none__' else r['store']==store)]
+  if sort in ('name','store','quantity'):
+   visible=sorted(visible,key=lambda r:((r[sort] or '').casefold() if sort!='quantity' else (r['quantity'] if r['quantity'] is not None else float('-inf')),r['position'],r['id']),reverse=direction=='desc')
+  # Abgehakte Artikel immer nach unten, unabhaengig von der gewaehlten Sortierung.
+  visible=sorted(visible,key=lambda r:r['checked'])
+  return render(req,'shopping.html',items=visible,stores=stores,store=store,sort=sort,direction=direction)
  @app.post('/shopping')
  def shopping_add(req:Request,name:str=Form(...),quantity:str=Form(''),unit:str=Form(''),store:str=Form('')):
   check(req)
@@ -184,6 +189,13 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
    archives=c.execute('SELECT * FROM shopping_archives ORDER BY closed_at DESC,id DESC').fetchall()
    contents={r['id']:c.execute('SELECT * FROM shopping_archive_items WHERE archive_id=? ORDER BY position,id',(r['id'],)).fetchall() for r in archives}
   return render(req,'shopping_archive.html',archives=archives,contents=contents)
+ @app.post('/shopping/archive/{id}/delete')
+ def shopping_archive_delete(req:Request,id:int):
+  check(req)
+  with db() as c:
+   c.execute('DELETE FROM shopping_archive_items WHERE archive_id=?',(id,))
+   c.execute('DELETE FROM shopping_archives WHERE id=?',(id,))
+  return go('/shopping/archive')
  @app.post('/shopping/archive/{id}/restore')
  def shopping_restore(req:Request,id:int):
   check(req)
@@ -325,6 +337,13 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
     key='hide_tab_'+page
     c.execute('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,'yes' if key in data else 'no'))
    c.execute("INSERT INTO app_settings(key,value) VALUES ('show_plot_summary',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('yes' if 'show_plot_summary' in data else 'no',))
+   import re
+   color=str(data.get('food_remove_color','#8b95a3'))
+   if not re.fullmatch(r'#[0-9a-fA-F]{6}',color):raise HTTPException(400,'Ungueltige Farbe')
+   try:food_gap=max(0,min(120,int(data.get('food_week_gap','26'))))
+   except ValueError:raise HTTPException(400,'Ungueltiger Abstand')
+   for key,value in [('food_remove_color',color),('food_week_gap',str(food_gap))]:
+    c.execute('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,value))
    c.execute("INSERT INTO app_settings(key,value) VALUES ('show_low_button',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('yes' if 'show_low_button' in data else 'no',))
   return go('/settings#appearance')
  @app.get('/settings',response_class=HTMLResponse)
