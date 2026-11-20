@@ -30,3 +30,18 @@ header .nav-logout{margin:0;align-self:center}header .nav-logout button{font-siz
 header{padding-top:5px;padding-bottom:5px;gap:6px}header .mainnav{gap:5px}header .mainnav a{padding:5px 8px}.task-sort-arrows{display:flex;gap:4px}.task-sort-arrows[hidden],#task-sort-form[hidden],#task-sort-toggle[hidden]{display:none!important}#task-sort-form{display:flex;gap:8px;flex-wrap:wrap}.label-settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;max-height:600px;overflow-y:auto;margin-bottom:14px}.label-settings-grid input{width:100%}.settings-logout{padding:10px 16px}.settings-logout form{margin:0}.settings-logout button{padding:7px 12px}
 
 .editor .todo-row{display:flex;align-items:flex-start;gap:7px;margin:4px 0;min-height:1.5em}.editor .todo-row input[type=checkbox]{flex:0 0 auto;width:17px;height:17px;margin:4px 0 0;padding:0}.editor .todo-row .todo-text{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}.editor .todo-row.todo-done .todo-text{text-decoration:line-through;color:#69788b}
+
+/* 0.3.4: Einkaufszettel und Wochenplan */
+.shopping-sort-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:12px 0}
+.shopping-line.shopping-line{grid-template-columns:34px minmax(0,1fr)}
+.shopping-line .sort-arrows{min-width:0}
+.shopping-sorting .shopping-line{grid-template-columns:88px minmax(0,1fr);gap:10px}
+.shopping-sorting .shopping-line .check-form,.shopping-sorting .shopping-line>.check-button{display:none!important}
+.shopping-sorting .shopping-line .sort-arrows{grid-column:1;display:flex;justify-content:flex-start}
+.shopping-sorting .shopping-line .shopping-expand{grid-column:2;min-width:0}
+.shopping-sorting .shopping-line .sort-arrows button{padding:8px 11px;min-width:36px}
+.food-plan .food-first-day{margin-top:var(--food-week-gap,26px)}
+.food-plan .food-day-meals .food-remove{background:transparent;border:1px solid var(--food-remove-color,#8b95a3);color:var(--food-remove-color,#8b95a3);font-size:1rem;padding:1px 7px}
+.editor .todo-row{display:flex;align-items:flex-start;gap:7px;margin:4px 0;min-height:1.5em}
+.editor .todo-row .todo-text{display:block;min-height:1.4em;white-space:pre-wrap}
+.editor p{min-height:1.4em}
