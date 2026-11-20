@@ -71,7 +71,7 @@ def safe_post(req):
  if origin and origin.split('://')[-1]!=host: raise HTTPException(403,'Ungueltiger Ursprung')
 
 def render(req,name,**kw):
- page_key={'home.html':'notes','edit.html':'notes','pantry.html':'pantry','pantry_edit.html':'pantry','shopping.html':'shopping','shopping_archive.html':'shopping','storage.html':'storage','storage_edit.html':'storage','settings.html':'settings','plotten.html':'plotten','tasks.html':'tasks','food.html':'food','food_archive.html':'food'}.get(name,'notes')
+ page_key={'home.html':'notes','edit.html':'notes','pantry.html':'pantry','pantry_edit.html':'pantry','shopping.html':'shopping','shopping_archive.html':'shopping','storage.html':'storage','storage_edit.html':'storage','settings.html':'settings','plotten.html':'plotten','tasks.html':'tasks','food.html':'food','food_archive.html':'food','backup.html':'settings'}.get(name,'notes')
  opts={}
  try:
   with db() as c:opts={r['key']:r['value'] for r in c.execute("SELECT key,value FROM app_settings WHERE key LIKE 'layout_%' OR key LIKE 'hide_tab_%'")}
@@ -167,7 +167,7 @@ def smb_action(action, category, filename, local=None):
  sub=opts.get('nas_folder','').strip('/\\')
  parts=[x for x in sub.replace('\\','/').split('/') if x]
  if any(x in ('.','..') or not re.fullmatch(r'[\w .-]{1,100}',x) for x in parts): raise ValueError('Ungueltiger Unterordner')
- parts.append(category)
+ parts.extend([x for x in category.split('/') if x])
  remote='/'.join(parts)
  # smbclient -A file requires a protected auth file, not command-line passwords.
  fd,auth=tempfile.mkstemp(prefix='haus-smb-',dir=str(BASE))
@@ -486,3 +486,6 @@ install_tasks(app,db,require,writer,safe_post,render,go,now)
 
 from app.food import install_food
 install_food(app,db,require,writer,safe_post,render,go,now)
+
+from app.backup import install_backup
+install_backup(app,db,require,safe_post,render,go,BASE,FILES,DB,cfg,smb_action)
