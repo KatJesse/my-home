@@ -45,3 +45,16 @@ header{padding-top:5px;padding-bottom:5px;gap:6px}header .mainnav{gap:5px}header
 .editor .todo-row{display:flex;align-items:flex-start;gap:7px;margin:4px 0;min-height:1.5em}
 .editor .todo-row .todo-text{display:block;min-height:1.4em;white-space:pre-wrap}
 .editor p{min-height:1.4em}
+
+/* v0.3.5: sort mode uses an isolated two-column layout, never the normal checkbox grid */
+.page-shopping #shopping-items.shopping-sorting{display:flex!important;flex-direction:column!important;gap:6px!important}
+.page-shopping #shopping-items.shopping-sorting .shopping-line{display:grid!important;grid-template-columns:104px minmax(0,1fr)!important;column-gap:12px!important;align-items:center!important;min-height:56px!important;padding:6px 10px!important;width:100%!important;box-sizing:border-box!important}
+.page-shopping #shopping-items.shopping-sorting .shopping-line .check-form,.page-shopping #shopping-items.shopping-sorting .shopping-line>.check-button{display:none!important}
+.page-shopping #shopping-items.shopping-sorting .shopping-line .sort-arrows{display:flex!important;grid-column:1!important;grid-row:1!important;gap:8px!important;align-items:center!important;justify-content:flex-start!important;position:static!important;width:104px!important}
+.page-shopping #shopping-items.shopping-sorting .shopping-line .sort-arrows button{position:static!important;min-width:44px!important;width:44px!important;min-height:44px!important;padding:8px!important;box-sizing:border-box!important}
+.page-shopping #shopping-items.shopping-sorting .shopping-line .shopping-expand{grid-column:2!important;grid-row:1!important;min-width:0!important}
+.page-shopping #shopping-items.shopping-sorting .shopping-line .shopping-expand>summary{display:flex!important;flex-wrap:wrap!important;gap:6px!important}
+.page-shopping #shopping-items.shopping-sorting .shopping-line .shopping-expand>summary strong{flex:1 1 100%!important}
+@media(max-width:700px){.page-shopping #shopping-items.shopping-sorting .shopping-line{grid-template-columns:100px minmax(0,1fr)!important;column-gap:6px!important}}
+
+.subtask-list{margin:8px 0 0 12px;padding-left:12px;border-left:2px solid #cdd8e5}.subtask-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 0;border-bottom:1px solid #e8edf3}.subtask-row.is-done .subtask-title{text-decoration:line-through;color:#64748b}.subtask-title{flex:1;min-width:110px}.subtask-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.subtask-tools form{display:flex;gap:4px}.subtask-add{margin:10px 0}.task-text .subtask-list{text-decoration:none;opacity:1}
