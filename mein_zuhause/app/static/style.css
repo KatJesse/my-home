@@ -61,3 +61,8 @@ header{padding-top:5px;padding-bottom:5px;gap:6px}header .mainnav{gap:5px}header
 
 /* 0.3.6: collapsible subtasks and creation/editing within task forms */
 .subtask-collapse{margin-top:8px}.subtask-collapse>summary{cursor:pointer;display:list-item;padding:6px 0;font-weight:500}.subtask-collapse[open]>.subtask-list{margin-top:5px}.subtask-form-editor{display:flex;flex-direction:column;gap:8px;width:100%;padding:10px 0}.subtask-fields{display:flex;flex-direction:column;gap:8px}.subtask-field{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.subtask-field .sub-title{flex:1 1 190px;min-width:120px}.subtask-field .sub-date{flex:0 1 170px}.task-edit .inline-form,.task-add .inline-form{align-items:flex-start}
+
+/* 0.3.7: Unteraufgaben wie Hauptaufgaben, Werkzeuge nur im Bearbeitungsmodus */
+.task-subtools[hidden]{display:none!important}.subtask-row{padding:10px 6px;min-height:44px;gap:10px}.subtask-row .subtask-title{flex:1;min-width:0;overflow-wrap:anywhere}.subtask-row form{flex:none}.subtask-row .task-due{margin-left:auto}.subtask-list{margin-left:16px;padding-left:12px}.subtask-tools{width:100%;padding:5px 0 8px 30px}.subtask-tools details{width:100%}.subtask-tools .inline-form{display:flex;flex-wrap:wrap;gap:8px}.subtask-row.is-done .subtask-title{opacity:.65}
+/* KFZ 0.3.7 */
+.kfz-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px;margin:12px 0}.kfz-form label{display:flex;flex-direction:column;gap:5px;min-width:0}.kfz-form textarea{min-height:65px}.kfz-form button{justify-self:start}.kfz-event{padding:12px 0;border-bottom:1px solid #d7e0e8}.kfz-event>summary{cursor:pointer}.kfz-event .task-actions{margin:10px 0}
