@@ -26,6 +26,7 @@ PDF_SECTIONS={
  'Aufgaben':['task_lists','task_items'],
  'Essen':['food_recipes','food_ingredients','food_plan'],
  'Einstellungen':['app_settings'],
+ 'KFZ':['kfz_vehicles','kfz_events','kfz_files'],
 }
 EXCLUDE={'users','sessions','note_search','hidden_categories'}
 SENSITIVE={'nas_password','password','token','secret','api_key'}
@@ -108,6 +109,8 @@ def install_backup(app,db,require,safe_post,render,go,BASE,FILES,DB,cfg,smb_acti
       snapshot=Path(d)/'house.db'
       with db() as src,sqlite3.connect(snapshot) as dst:src.backup(dst)
       z.write(snapshot,'database/house.db')
+     for f in (BASE/'kfz').rglob('*'):
+      if f.is_file() and not f.is_symlink() and f.suffix.lower()!='.pdf':z.write(f,'uploads/kfz/'+f.relative_to(BASE/'kfz').as_posix())
      for f in FILES.rglob('*'):
       if f.is_file() and not f.is_symlink():z.write(f,'uploads/'+f.relative_to(FILES).as_posix())
     os.replace(tmp,path)
@@ -120,6 +123,14 @@ def install_backup(app,db,require,safe_post,render,go,BASE,FILES,DB,cfg,smb_acti
     pdfs=[]
     for section in [*PDF_SECTIONS,'Weitere Daten']:
      pdf=folder/(section+'.pdf');build_pdf(section,pdf);publish(pdf,'PDFs/Aktuell',pdf.name);pdfs.append(pdf)
+    with db() as c:
+     kfz_ids=[r['id'] for r in c.execute('SELECT id FROM kfz_vehicles')]
+    from app.main import app as current_app
+    vehicle_pdf=getattr(current_app.state,'kfz_pdf_export',None)
+    if vehicle_pdf:
+     for vid in kfz_ids:
+      target=folder/('KFZ-Fahrzeug-'+str(vid)+'.pdf')
+      vehicle_pdf(vid,target);publish(target,'PDFs/Aktuell',target.name);pdfs.append(target)
     zpath=folder/('MeinZuhause-'+timestamp+'.zip');make_zip(zpath)
     daily_name='MeinZuhause-'+datetime.now(TZ).strftime('%Y-%m-%d')+'.zip'
     publish(zpath,'Backup/Aktuell',daily_name)
@@ -172,6 +183,15 @@ def install_backup(app,db,require,safe_post,render,go,BASE,FILES,DB,cfg,smb_acti
      for suffix in ('-wal','-shm'):
       Path(str(DB)+suffix).unlink(missing_ok=True)
      incoming=d/'uploads'
+     incoming_kfz=incoming/'kfz'
+     if incoming_kfz.exists():
+      previous_kfz=root/('kfz-vor-wiederherstellung-'+stamp())
+      if (BASE/'kfz').exists():(BASE/'kfz').rename(previous_kfz)
+      shutil.copytree(incoming_kfz,BASE/'kfz')
+      shutil.rmtree(incoming_kfz)
+     elif (BASE/'kfz').exists():
+      (BASE/'kfz').rename(root/('kfz-vor-wiederherstellung-'+stamp()))
+      (BASE/'kfz').mkdir()
      if incoming.exists():
       previous=root/('uploads-vor-wiederherstellung-'+stamp());FILES.rename(previous)
       shutil.copytree(incoming,FILES)

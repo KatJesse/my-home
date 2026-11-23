@@ -65,6 +65,18 @@ def install_tasks(app,db,require,writer,safe_post,render,go,now):
    elif action=='delete':c.execute('DELETE FROM task_lists WHERE id=?',(id,))
    else:raise HTTPException(400,'Ungueltige Aktion')
   return go('/tasks?archive='+('1' if action=='archive' else '0'))
+ @app.post('/tasks/list/{id}/archive-done')
+ def archive_done(req:Request,id:int):
+  check(req)
+  with db() as c:
+   l=valid_list(c,id)
+   if l['archived']:raise HTTPException(409,'Liste ist archiviert')
+   # Erledigte Hauptaufgaben mitsamt Unteraufgaben archivieren.
+   parents=[r['id'] for r in c.execute('SELECT id FROM task_items WHERE list_id=? AND parent_id IS NULL AND done=1 AND item_archived=0',(id,))]
+   for pid in parents:c.execute('UPDATE task_items SET item_archived=1,updated=? WHERE id=? OR parent_id=?',(now(),pid,pid))
+   # Erledigte Unteraufgaben unter weiterhin aktiven Hauptaufgaben einzeln archivieren.
+   c.execute('UPDATE task_items SET item_archived=1,updated=? WHERE list_id=? AND parent_id IS NOT NULL AND done=1 AND item_archived=0',(now(),id))
+  return go('/tasks?list_id='+str(id))
  @app.post('/tasks/reorder')
  def reorder(req:Request,list_id:int=Form(...),order:str=Form(...)):
   check(req)

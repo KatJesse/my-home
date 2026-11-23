@@ -313,7 +313,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
  async def appearance_save(req:Request):
   admin(req);safe_post(req)
   data=await req.form()
-  pages=('notes','pantry','shopping','storage','plotten','tasks','food','settings')
+  pages=('notes','pantry','shopping','storage','plotten','tasks','food','kfz','settings')
   keys={'font','columns','gap','rowgap','menugap','bold','fields','stripe1','stripe2'}
   with db() as c:
    for page in pages:
@@ -330,7 +330,7 @@ def install_features(app,db,require,writer,safe_post,render,go,now,BASE,FILES,ha
         import re
         if not re.fullmatch(r'#[0-9a-fA-F]{6}',value):raise HTTPException(400,'Farbwert ungueltig')
        if key in ('bold','fields'):
-        allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',),'plotten':('name','manufacturer','kind','size','quantity','status'),'tasks':('title',),'food':('title','category','updated')}[page]
+        allowed={'notes':('title','category','updated'),'pantry':('name','location','shelf','quantity'),'shopping':('name','quantity','store'),'storage':('number','title','place'),'settings':('title',),'plotten':('name','manufacturer','kind','size','quantity','status'),'tasks':('title',),'food':('title','category','updated'),'kfz':('title',)}[page]
         value=','.join(v for v in value.split(',') if v in allowed)
        c.execute('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(field,value))
    for page in pages:
